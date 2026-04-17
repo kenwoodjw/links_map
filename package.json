@@ -9,18 +9,25 @@
     "lint": "eslint"
   },
   "dependencies": {
+    "maplibre-gl": "^5.23.0",
     "next": "16.2.4",
     "react": "19.2.4",
-    "react-dom": "19.2.4"
+    "react-dom": "19.2.4",
+    "react-map-gl": "^8.1.1",
+    "supercluster": "^8.0.1",
+    "yet-another-react-lightbox": "^3.31.0"
   },
   "devDependencies": {
+    "@anthropic-ai/sdk": "^0.90.0",
     "@tailwindcss/postcss": "^4",
     "@types/node": "^20",
     "@types/react": "^19",
     "@types/react-dom": "^19",
+    "@types/supercluster": "^7.1.3",
     "eslint": "^9",
     "eslint-config-next": "16.2.4",
     "tailwindcss": "^4",
+    "tsx": "^4.21.0",
     "typescript": "^5"
   }
 }

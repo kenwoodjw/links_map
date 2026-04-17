@@ -1,65 +1,135 @@
-import Image from "next/image";
+"use client";
+
+import dynamic from "next/dynamic";
+import { useMemo, useState } from "react";
+import { locations } from "@/lib/locations";
+import LocationLightbox from "@/components/LocationLightbox";
+import TopHeader from "@/components/TopHeader";
+import BottomBar, { type StatusFilter } from "@/components/BottomBar";
+import RegionBreadcrumb from "@/components/RegionBreadcrumb";
+import { regionOf, REGION_VIEW, type Region } from "@/lib/regions";
+import { useAllBucketStatuses } from "@/lib/bucketList";
+import { useAllNotes } from "@/lib/notes";
+import type { Location } from "@/lib/types";
+
+const GlobeMap = dynamic(() => import("@/components/GlobeMap"), {
+  ssr: false,
+  loading: () => (
+    <div className="flex h-full items-center justify-center bg-black text-white/50 text-sm tracking-widest">
+      加载地球...
+    </div>
+  ),
+});
 
 export default function Home() {
+  const [selected, setSelected] = useState<Location | null>(null);
+  const [flyTarget, setFlyTarget] = useState<Location | null>(null);
+  const [status, setStatus] = useState<StatusFilter>("all");
+  const [region, setRegion] = useState<Region | "all">("all");
+  const bucketStatuses = useAllBucketStatuses();
+  const allNotes = useAllNotes();
+
+  const availableRegions = useMemo(() => {
+    const set = new Set<Region>();
+    for (const l of locations) set.add(regionOf(l));
+    return [...set];
+  }, []);
+
+  const filtered = useMemo(() => {
+    return locations.filter((l) => {
+      const s = bucketStatuses[l.id] ?? null;
+      if (status === "visited" && s !== "visited") return false;
+      if (status === "wishlist" && s !== "wishlist") return false;
+      if (region !== "all" && regionOf(l) !== region) return false;
+      return true;
+    });
+  }, [bucketStatuses, status, region]);
+
+  const counts = useMemo(() => {
+    let visited = 0;
+    let wishlist = 0;
+    for (const l of locations) {
+      const s = bucketStatuses[l.id];
+      if (s === "visited") visited++;
+      else if (s === "wishlist") wishlist++;
+    }
+    return { visited, wishlist };
+  }, [bucketStatuses]);
+
+  const handleSelect = (loc: Location) => {
+    setFlyTarget(loc);
+    setTimeout(() => setSelected(loc), 900);
+  };
+
+  const regionTarget = region === "all" ? null : REGION_VIEW[region];
+
   return (
-    <div className="flex flex-col flex-1 items-center justify-center bg-zinc-50 font-sans dark:bg-black">
-      <main className="flex flex-1 w-full max-w-3xl flex-col items-center justify-between py-32 px-16 bg-white dark:bg-black sm:items-start">
-        <Image
-          className="dark:invert"
-          src="/next.svg"
-          alt="Next.js logo"
-          width={100}
-          height={20}
-          priority
-        />
-        <div className="flex flex-col items-center gap-6 text-center sm:items-start sm:text-left">
-          <h1 className="max-w-xs text-3xl font-semibold leading-10 tracking-tight text-black dark:text-zinc-50">
-            To get started, edit the page.tsx file.
-          </h1>
-          <p className="max-w-md text-lg leading-8 text-zinc-600 dark:text-zinc-400">
-            Looking for a starting point or more instructions? Head over to{" "}
-            <a
-              href="https://vercel.com/templates?framework=next.js&utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-              className="font-medium text-zinc-950 dark:text-zinc-50"
-            >
-              Templates
-            </a>{" "}
-            or the{" "}
-            <a
-              href="https://nextjs.org/learn?utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-              className="font-medium text-zinc-950 dark:text-zinc-50"
-            >
-              Learning
-            </a>{" "}
-            center.
-          </p>
-        </div>
-        <div className="flex flex-col gap-4 text-base font-medium sm:flex-row">
-          <a
-            className="flex h-12 w-full items-center justify-center gap-2 rounded-full bg-foreground px-5 text-background transition-colors hover:bg-[#383838] dark:hover:bg-[#ccc] md:w-[158px]"
-            href="https://vercel.com/new?utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-            target="_blank"
-            rel="noopener noreferrer"
-          >
-            <Image
-              className="dark:invert"
-              src="/vercel.svg"
-              alt="Vercel logomark"
-              width={16}
-              height={16}
-            />
-            Deploy Now
-          </a>
-          <a
-            className="flex h-12 w-full items-center justify-center rounded-full border border-solid border-black/[.08] px-5 transition-colors hover:border-transparent hover:bg-black/[.04] dark:border-white/[.145] dark:hover:bg-[#1a1a1a] md:w-[158px]"
-            href="https://nextjs.org/docs?utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-            target="_blank"
-            rel="noopener noreferrer"
-          >
-            Documentation
-          </a>
-        </div>
-      </main>
+    <div className="relative h-screen w-screen overflow-hidden bg-black">
+      <GlobeMap
+        locations={filtered}
+        onSelect={handleSelect}
+        flyTarget={flyTarget}
+        regionTarget={regionTarget}
+        autoRotate={selected === null && flyTarget === null && region === "all"}
+      />
+      {/* Vignette: pulls focus toward the globe, adds cinematic depth */}
+      <div
+        aria-hidden
+        className="pointer-events-none absolute inset-0 z-10"
+        style={{
+          background:
+            "radial-gradient(ellipse at center, transparent 40%, rgba(0,0,0,0.35) 75%, rgba(0,0,0,0.7) 100%)",
+        }}
+      />
+      {/* Top/bottom scrim: guarantees legibility for header/bottom-bar over any point of the globe */}
+      <div
+        aria-hidden
+        className="pointer-events-none absolute inset-x-0 top-0 z-10 h-40"
+        style={{
+          background:
+            "linear-gradient(to bottom, rgba(3,8,17,0.55), transparent)",
+        }}
+      />
+      <div
+        aria-hidden
+        className="pointer-events-none absolute inset-x-0 bottom-0 z-10 h-32"
+        style={{
+          background:
+            "linear-gradient(to top, rgba(3,8,17,0.55), transparent)",
+        }}
+      />
+      <TopHeader
+        total={locations.length}
+        visited={counts.visited}
+        wishlist={counts.wishlist}
+        notes={Object.keys(allNotes).length}
+      />
+      <RegionBreadcrumb region={region} onClear={() => setRegion("all")} />
+      <BottomBar
+        status={status}
+        onStatus={setStatus}
+        region={region}
+        onRegion={setRegion}
+        availableRegions={availableRegions}
+      />
+      <LocationLightbox
+        location={selected}
+        onClose={() => {
+          setSelected(null);
+          setFlyTarget(null);
+        }}
+      />
+      {/* hidden but kept for a11y */}
+      <button
+        onClick={() => {
+          const random = filtered[Math.floor(Math.random() * filtered.length)];
+          if (random) handleSelect(random);
+        }}
+        className="sr-only"
+        aria-hidden
+      >
+        shuffle
+      </button>
     </div>
   );
 }
