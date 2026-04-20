@@ -15,6 +15,7 @@
  */
 import fs from "node:fs";
 import path from "node:path";
+import { fileURLToPath } from "node:url";
 
 type RawEntry = {
   id: string;
@@ -41,7 +42,7 @@ type VideoLocations = {
   locations: ExtractedLocation[];
 };
 
-const ROOT = path.resolve(import.meta.dirname, "..");
+const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 const CHANNEL_JSON = path.join(ROOT, "raw/channel.json");
 const OUT_JSON = path.join(ROOT, "raw/locations-raw.json");
 

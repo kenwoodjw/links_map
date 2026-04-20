@@ -3,11 +3,13 @@
 import "maplibre-gl/dist/maplibre-gl.css";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { Map as MapGL, Marker, type MapRef } from "react-map-gl/maplibre";
+import type { StyleSpecification } from "maplibre-gl";
 import type { Location, BucketStatus } from "@/lib/types";
 import { useAllBucketStatuses } from "@/lib/bucketList";
 import { useAllNotes } from "@/lib/notes";
 import { locations as allLocations } from "@/lib/locations";
 import { greatCirclePoints } from "@/lib/greatCircle";
+import { terminatorFeatures } from "@/lib/terminator";
 
 type Props = {
   locations: Location[];
@@ -15,10 +17,32 @@ type Props = {
   flyTarget: Location | null;
   regionTarget: { lng: number; lat: number; zoom: number } | null;
   autoRotate: boolean;
+  lightboxOpen: boolean;
 };
 
 // CARTO's free dark-matter vector style — no API key required.
 const DARK_STYLE = "https://basemaps.cartocdn.com/gl/dark-matter-gl-style/style.json";
+
+// NASA GIBS Blue Marble (MODIS Terra composite, EPSG:3857 WMTS tiles).
+// Free, no API key needed. maxzoom 8 is well above our globe's maxZoom 5.5.
+const SATELLITE_STYLE = {
+  version: 8,
+  sources: {
+    "blue-marble": {
+      type: "raster",
+      tiles: [
+        "https://gibs.earthdata.nasa.gov/wmts/epsg3857/best/BlueMarble_ShadedRelief_Bathymetry/default/2004-08/GoogleMapsCompatible_Level8/{z}/{y}/{x}.jpg",
+      ],
+      tileSize: 256,
+      maxzoom: 8,
+      attribution: "Imagery NASA/GSFC EOSDIS GIBS",
+    },
+  },
+  layers: [
+    { id: "background", type: "background", paint: { "background-color": "#020408" } },
+    { id: "satellite", type: "raster", source: "blue-marble" },
+  ],
+} satisfies StyleSpecification;
 
 function ringColor(status: BucketStatus): string {
   if (status === "visited") return "#10b981"; // emerald
@@ -38,9 +62,11 @@ function ringColor(status: BucketStatus): string {
  *   --earth-label    : place labels — dim, recedes behind markers
  */
 const EARTH = {
-  ocean: "#0e2a4a",
-  land: "#0a1526",
-  landuse: "#0d1a2f",
+  // Restored to natural hierarchy: land reads brighter than ocean so continents
+  // feel solid instead of void. Still deep/desaturated overall so markers lead.
+  ocean: "#091a2e",
+  land: "#1a2b44",
+  landuse: "#1f3250",
   border: "rgba(110,170,220,0.22)",
   label: "rgba(200,220,240,0.55)",
   labelHalo: "rgba(5,12,24,0.9)",
@@ -78,6 +104,13 @@ function applyBluePalette(map: maplibregl.Map) {
         continue;
       }
       if (type === "symbol") {
+        // Hide all labels below zoom 3 — at globe-wide view the text crowds
+        // markers; once you zoom into a region, labels return as context.
+        try {
+          map.setLayerZoomRange(id, 3, 24);
+        } catch {
+          /* layer already has a stricter range */
+        }
         try {
           map.setPaintProperty(id, "text-color", EARTH.label);
           map.setPaintProperty(id, "text-halo-color", EARTH.labelHalo);
@@ -98,6 +131,7 @@ export default function GlobeMap({
   flyTarget,
   regionTarget,
   autoRotate,
+  lightboxOpen,
 }: Props) {
   const mapRef = useRef<MapRef>(null);
   const statuses = useAllBucketStatuses();
@@ -105,6 +139,15 @@ export default function GlobeMap({
   const rotationRafRef = useRef<number | null>(null);
   const userInteractingRef = useRef(false);
   const [isMapReady, setIsMapReady] = useState(false);
+  const [isSatellite, setIsSatellite] = useState(false);
+  // Increment to force MapGL remount on style switch (cleanest way to reload layers).
+  const [mapKey, setMapKey] = useState(0);
+
+  const toggleStyle = () => {
+    setIsMapReady(false);
+    setIsSatellite((prev) => !prev);
+    setMapKey((k) => k + 1);
+  };
 
   const stopRotate = useCallback(() => {
     if (rotationRafRef.current !== null) {
@@ -171,27 +214,109 @@ export default function GlobeMap({
     if (map.setProjection) {
       map.setProjection({ type: "globe" });
     }
-    // "Deep Ocean" atmosphere:
-    //   - deep-space sky blends to a luminous cyan rim (the iconic "astronaut view")
-    //   - fog on the night side stays near-black so the globe silhouette reads clean
-    //   - atmosphere-blend dialed down from 1.0 → 0.75 so the rim glows rather than
-    //     washing out the whole globe
     if (map.setSky) {
-      map.setSky({
-        "sky-color": "#030811",            // deep space, almost black
-        "sky-horizon-blend": 0.55,
-        "horizon-color": "#3d7fc4",        // cyan-blue rim glow
-        "horizon-fog-blend": 0.5,
-        "fog-color": "#030811",            // dark side fog matches space
-        "fog-ground-blend": 0.05,
-        "atmosphere-blend": 0.75,
-      });
+      map.setSky(
+        isSatellite
+          ? {
+              // Satellite: thin realistic atmosphere over photographed Earth
+              "sky-color": "#020408",
+              "sky-horizon-blend": 0.38,
+              "horizon-color": "#1a6baa",
+              "horizon-fog-blend": 0.28,
+              "fog-color": "#020408",
+              "fog-ground-blend": 0.02,
+              "atmosphere-blend": 0.5,
+            }
+          : {
+              // Dark vector: deep-space sky with luminous cyan rim
+              "sky-color": "#030811",
+              "sky-horizon-blend": 0.55,
+              "horizon-color": "#3d7fc4",
+              "horizon-fog-blend": 0.5,
+              "fog-color": "#030811",
+              "fog-ground-blend": 0.05,
+              "atmosphere-blend": 0.75,
+            }
+      );
     }
-    // Recolor the basemap layers to blue
-    applyBluePalette(map);
+    // Vector style only — satellite uses raster tiles with no recolorable layers
+    if (!isSatellite) applyBluePalette(map);
     startRotate();
     setIsMapReady(true);
   };
+
+  // Day/night terminator — a translucent dark fill over the night hemisphere
+  // plus a soft amber rim along the terminator itself (sunrise/sunset glow).
+  // Refreshes every 60s so the shadow quietly rolls across the globe as you
+  // browse, hinting "this is a real planet turning in real time".
+  useEffect(() => {
+    if (!isMapReady) return;
+    const map = mapRef.current?.getMap();
+    if (!map) return;
+
+    const polySource = "night-shadow";
+    const lineSource = "terminator-rim";
+
+    const apply = () => {
+      const { polygon, line } = terminatorFeatures();
+      const poly = map.getSource(polySource) as
+        | { setData: (d: unknown) => void }
+        | undefined;
+      const rim = map.getSource(lineSource) as
+        | { setData: (d: unknown) => void }
+        | undefined;
+      if (poly && rim) {
+        poly.setData(polygon);
+        rim.setData(line);
+        return;
+      }
+
+      // Keep shadow/rim *below* visited arcs so the journey line always
+      // reads bright, regardless of which effect registers first.
+      const beforeId = map.getLayer("visited-arcs-glow")
+        ? "visited-arcs-glow"
+        : undefined;
+
+      if (!poly) {
+        map.addSource(polySource, { type: "geojson", data: polygon });
+        map.addLayer(
+          {
+            id: "night-shadow-fill",
+            type: "fill",
+            source: polySource,
+            paint: {
+              "fill-color": "#000000",
+              "fill-opacity": 0.32,
+              "fill-antialias": true,
+            },
+          },
+          beforeId
+        );
+      }
+      if (!rim) {
+        map.addSource(lineSource, { type: "geojson", data: line });
+        map.addLayer(
+          {
+            id: "terminator-rim-glow",
+            type: "line",
+            source: lineSource,
+            layout: { "line-cap": "round", "line-join": "round" },
+            paint: {
+              "line-color": "#f59e0b",
+              "line-width": 2.5,
+              "line-blur": 5,
+              "line-opacity": 0.35,
+            },
+          },
+          beforeId
+        );
+      }
+    };
+
+    apply();
+    const id = window.setInterval(apply, 60_000);
+    return () => window.clearInterval(id);
+  }, [isMapReady]);
 
   // "Journey trail" — gold great-circle arcs connecting visited locations in
   // chronological order (notes.visitedAt asc; undated entries trail, in array
@@ -273,12 +398,14 @@ export default function GlobeMap({
   }, [isMapReady, statuses, notes]);
 
   return (
+    <>
     <MapGL
+      key={mapKey}
       ref={mapRef}
-      initialViewState={{ longitude: 30, latitude: 25, zoom: 1.2 }}
-      minZoom={0.8}
-      maxZoom={10}
-      mapStyle={DARK_STYLE}
+      initialViewState={{ longitude: 110, latitude: 30, zoom: 1.35, pitch: 22 }}
+      minZoom={1.1}
+      maxZoom={5.5}
+      mapStyle={isSatellite ? SATELLITE_STYLE : DARK_STYLE}
       onLoad={handleLoad}
       onMouseDown={() => (userInteractingRef.current = true)}
       onMouseUp={() => (userInteractingRef.current = false)}
@@ -329,6 +456,34 @@ export default function GlobeMap({
                   "opacity 0.45s ease, transform 0.45s cubic-bezier(0.34, 1.4, 0.6, 1)",
               }}
             >
+              {/* Wishlist beam — amber "light column" rising from the marker,
+                  so "still-to-visit" points are visible even from globe-wide zoom */}
+              {status === "wishlist" && (
+                <span
+                  aria-hidden
+                  className="pointer-events-none absolute left-1/2 -translate-x-1/2"
+                  style={{ bottom: "100%", width: 2, height: 44 }}
+                >
+                  <span
+                    className="absolute inset-0 rounded-full"
+                    style={{
+                      background:
+                        "linear-gradient(to top, rgba(251,191,36,0.9) 0%, rgba(251,191,36,0.5) 45%, rgba(251,191,36,0) 100%)",
+                      filter: "drop-shadow(0 0 3px rgba(251,191,36,0.65))",
+                    }}
+                  />
+                  {/* Soft pulsing tip — gentle "calling you" cue */}
+                  <span className="absolute left-1/2 top-0 h-3 w-3 -translate-x-1/2 -translate-y-1/2">
+                    <span
+                      className="absolute inset-0 rounded-full animate-[pulseGlow_2.8s_ease-in-out_infinite]"
+                      style={{
+                        background:
+                          "radial-gradient(circle, rgba(253,230,138,0.95) 0%, rgba(251,191,36,0.4) 45%, rgba(251,191,36,0) 75%)",
+                      }}
+                    />
+                  </span>
+                </span>
+              )}
               {/* Focused outer glow — soft pulsing halo */}
               {focused && (
                 <span
@@ -377,58 +532,61 @@ export default function GlobeMap({
                 </span>
               )}
               {/* Hover preview card — appears immediately on hover */}
-              <span className="pointer-events-none absolute left-1/2 top-full z-30 mt-2 block w-52 -translate-x-1/2 -translate-y-1 overflow-hidden rounded-xl border border-white/15 bg-black/80 text-left opacity-0 shadow-[0_12px_32px_rgba(0,0,0,0.6)] backdrop-blur-md transition-all duration-200 ease-out group-hover:translate-y-0 group-hover:opacity-100">
-                {/* Thumbnails area */}
-                <span
-                  className="relative grid w-full gap-px bg-black"
-                  style={{
-                    aspectRatio: "16 / 9",
-                    gridTemplateColumns:
-                      loc.videos.length >= 2 ? "1fr 1fr" : "1fr",
-                  }}
-                >
-                  {/* First thumbnail (always shown) */}
-                  <span className="relative block h-full w-full overflow-hidden">
-                    {/* eslint-disable-next-line @next/next/no-img-element */}
-                    <img
-                      src={loc.videos[0]?.thumbnail}
-                      alt=""
-                      className="block h-full w-full object-cover"
-                      loading="lazy"
-                    />
-                  </span>
-                  {/* Second thumbnail (only when there are ≥ 2 videos) */}
-                  {loc.videos.length >= 2 && (
-                    <span className="relative block h-full w-full overflow-hidden">
-                      {/* eslint-disable-next-line @next/next/no-img-element */}
-                      <img
-                        src={loc.videos[1]?.thumbnail}
-                        alt=""
-                        className="block h-full w-full object-cover"
-                        loading="lazy"
-                      />
-                      {loc.videos.length > 2 && (
-                        <span className="absolute inset-0 flex items-center justify-center bg-black/60 font-serif text-lg font-medium text-white backdrop-blur-[1px]">
-                          +{loc.videos.length - 1}
+              <span className={`pointer-events-none absolute left-1/2 top-full z-30 mt-2 block w-72 -translate-x-1/2 -translate-y-1 overflow-hidden rounded-xl border border-white/15 bg-black/80 text-left opacity-0 shadow-[0_12px_32px_rgba(0,0,0,0.6)] backdrop-blur-md transition-all duration-200 ease-out ${!lightboxOpen ? "group-hover:translate-y-0 group-hover:opacity-100" : ""}`}>
+                {/* Thumbnails — all videos tiled, no "+N" cap */}
+                {(() => {
+                  const n = loc.videos.length;
+                  // cols: 1→1, 2→2 (side-by-side at 16/9 each), 3-4→2 (2×2),
+                  // 5-6→3 (2-row), else 3
+                  const cols = n <= 1 ? 1 : n <= 2 ? 2 : n <= 4 ? 2 : 3;
+                  // Each cell should stay near 16/9. Container height = rows × (cellW × 9/16).
+                  // With n=2 cols=2 rows=1: container = 32/9 ratio (flat but each cell is 16/9 ✓)
+                  // With n=3 cols=2 rows=2: 16/9 container (video[0] spans both cols in row 1)
+                  // With n=4 cols=2 rows=2: 16/9 container (2×2 cells each 16/9 ✓)
+                  const rows = Math.ceil(n / cols);
+                  const aspectW = cols * 16;
+                  const aspectH = rows * 9;
+                  return (
+                    <span
+                      className="relative grid w-full gap-px bg-black"
+                      style={{
+                        aspectRatio: `${aspectW} / ${aspectH}`,
+                        gridTemplateColumns: `repeat(${cols}, 1fr)`,
+                      }}
+                    >
+                      {loc.videos.map((video, vi) => (
+                        <span
+                          key={vi}
+                          className="relative overflow-hidden"
+                          // For exactly 3 videos: first spans both cols as a "hero" top row
+                          style={n === 3 && vi === 0 ? { gridColumn: "span 2" } : undefined}
+                        >
+                          {/* eslint-disable-next-line @next/next/no-img-element */}
+                          <img
+                            src={video.thumbnail}
+                            alt=""
+                            className="block h-full w-full object-cover"
+                            loading="lazy"
+                          />
+                        </span>
+                      ))}
+                      {/* Status micro-badges */}
+                      {(status || hasNote) && (
+                        <span className="pointer-events-none absolute left-1.5 top-1.5 z-10 flex items-center gap-1">
+                          {status === "visited" && (
+                            <span className="h-1.5 w-1.5 rounded-full bg-emerald-400 shadow-[0_0_8px_rgba(16,185,129,0.8)]" />
+                          )}
+                          {status === "wishlist" && (
+                            <span className="h-1.5 w-1.5 rounded-full bg-amber-400 shadow-[0_0_8px_rgba(245,158,11,0.8)]" />
+                          )}
+                          {hasNote && (
+                            <span className="h-1.5 w-1.5 rounded-full bg-sky-400 shadow-[0_0_8px_rgba(56,189,248,0.8)]" />
+                          )}
                         </span>
                       )}
                     </span>
-                  )}
-                  {/* Status micro-badges (top-left, mirror the marker) */}
-                  {(status || hasNote) && (
-                    <span className="pointer-events-none absolute left-1.5 top-1.5 z-10 flex items-center gap-1">
-                      {status === "visited" && (
-                        <span className="h-1.5 w-1.5 rounded-full bg-emerald-400 shadow-[0_0_8px_rgba(16,185,129,0.8)]" />
-                      )}
-                      {status === "wishlist" && (
-                        <span className="h-1.5 w-1.5 rounded-full bg-amber-400 shadow-[0_0_8px_rgba(245,158,11,0.8)]" />
-                      )}
-                      {hasNote && (
-                        <span className="h-1.5 w-1.5 rounded-full bg-sky-400 shadow-[0_0_8px_rgba(56,189,248,0.8)]" />
-                      )}
-                    </span>
-                  )}
-                </span>
+                  );
+                })()}
                 {/* Text */}
                 <span className="block px-3 py-2.5">
                   <span className="block truncate font-serif text-sm leading-tight text-white">
@@ -444,5 +602,26 @@ export default function GlobeMap({
         );
       })}
     </MapGL>
+
+    {/* Style toggle — satellite ↔ dark vector */}
+    <button
+      onClick={toggleStyle}
+      title={isSatellite ? "切换为深色地图" : "切换为卫星图像"}
+      aria-label={isSatellite ? "切换为深色地图" : "切换为卫星图像"}
+      className="absolute bottom-[78px] right-4 z-20 flex h-9 w-9 items-center justify-center rounded-full border border-white/20 bg-black/55 text-white/75 shadow-md backdrop-blur-md transition-all hover:border-white/40 hover:bg-black/70 hover:text-white sm:bottom-[78px] sm:right-5"
+    >
+      {isSatellite ? (
+        // Vector map icon
+        <svg viewBox="0 0 20 20" fill="currentColor" className="h-4 w-4">
+          <path fillRule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zM4.93 5.82C3.08 7.34 2 9.58 2 12c0 .78.1 1.54.29 2.26L6 10.5l1.5 3 2-4.5 1 2h3l-2.5 5H10a8 8 0 01-5.07-9.18zM14.5 17.2l-1-3.7H11l2-4 2 2.5 1.5-3 1.21 1.21A7.97 7.97 0 0118 12c0 2.42-1.08 4.66-2.93 6.18l-.57-.98z" clipRule="evenodd" />
+        </svg>
+      ) : (
+        // Satellite icon
+        <svg viewBox="0 0 20 20" fill="currentColor" className="h-4 w-4">
+          <path d="M2 11a1 1 0 011-1h2a1 1 0 010 2H3a1 1 0 01-1-1zm9-9a1 1 0 011 1v2a1 1 0 01-2 0V3a1 1 0 011-1zm0 12a1 1 0 011 1v2a1 1 0 01-2 0v-2a1 1 0 011-1zm7-4a1 1 0 01-1 1h-2a1 1 0 010-2h2a1 1 0 011 1zM5.05 6.464A1 1 0 106.465 5.05l-1.414-1.414A1 1 0 003.636 5.05l1.414 1.414zm9.9 9.9a1 1 0 001.414-1.414l-1.414-1.414a1 1 0 00-1.414 1.414l1.414 1.414zM5.05 13.536a1 1 0 010 1.414l-1.414 1.414a1 1 0 01-1.414-1.414l1.414-1.414a1 1 0 011.414 0zm9.9-9.9a1 1 0 011.414 0l1.414 1.414a1 1 0 01-1.414 1.414l-1.414-1.414a1 1 0 010-1.414zM10 7a3 3 0 100 6 3 3 0 000-6z" />
+        </svg>
+      )}
+    </button>
+    </>
   );
 }

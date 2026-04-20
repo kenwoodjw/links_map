@@ -1,12 +1,14 @@
 "use client";
 
 import dynamic from "next/dynamic";
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { locations } from "@/lib/locations";
 import LocationLightbox from "@/components/LocationLightbox";
+import LocationList from "@/components/LocationList";
 import TopHeader from "@/components/TopHeader";
 import BottomBar, { type StatusFilter } from "@/components/BottomBar";
-import RegionBreadcrumb from "@/components/RegionBreadcrumb";
+import SurpriseButton from "@/components/SurpriseButton";
+import StarField from "@/components/StarField";
 import { regionOf, REGION_VIEW, type Region } from "@/lib/regions";
 import { useAllBucketStatuses } from "@/lib/bucketList";
 import { useAllNotes } from "@/lib/notes";
@@ -63,6 +65,37 @@ export default function Home() {
 
   const regionTarget = region === "all" ? null : REGION_VIEW[region];
 
+  // "Clean mode" — press H to fade all HUD.
+  const [hudHidden, setHudHidden] = useState(false);
+  const [hintVisible, setHintVisible] = useState(false);
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      if (selected) return;
+      const target = e.target as HTMLElement | null;
+      if (
+        target &&
+        (target.tagName === "INPUT" ||
+          target.tagName === "TEXTAREA" ||
+          target.isContentEditable)
+      ) {
+        return;
+      }
+      if (e.key.toLowerCase() === "h") {
+        setHudHidden((prev) => {
+          if (!prev) setHintVisible(true);
+          return !prev;
+        });
+      }
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [selected]);
+  useEffect(() => {
+    if (!hintVisible) return;
+    const t = setTimeout(() => setHintVisible(false), 3000);
+    return () => clearTimeout(t);
+  }, [hintVisible]);
+
   return (
     <div className="relative h-screen w-screen overflow-hidden bg-black">
       <GlobeMap
@@ -71,17 +104,19 @@ export default function Home() {
         flyTarget={flyTarget}
         regionTarget={regionTarget}
         autoRotate={selected === null && flyTarget === null && region === "all"}
+        lightboxOpen={selected !== null}
       />
-      {/* Vignette: pulls focus toward the globe, adds cinematic depth */}
+      <StarField />
+      {/* Vignette */}
       <div
         aria-hidden
         className="pointer-events-none absolute inset-0 z-10"
         style={{
           background:
-            "radial-gradient(ellipse at center, transparent 40%, rgba(0,0,0,0.35) 75%, rgba(0,0,0,0.7) 100%)",
+            "radial-gradient(ellipse at center, transparent 55%, rgba(0,0,0,0.25) 85%, rgba(0,0,0,0.45) 100%)",
         }}
       />
-      {/* Top/bottom scrim: guarantees legibility for header/bottom-bar over any point of the globe */}
+      {/* Top scrim */}
       <div
         aria-hidden
         className="pointer-events-none absolute inset-x-0 top-0 z-10 h-40"
@@ -90,28 +125,72 @@ export default function Home() {
             "linear-gradient(to bottom, rgba(3,8,17,0.55), transparent)",
         }}
       />
+      {/* Bottom scrim */}
       <div
         aria-hidden
         className="pointer-events-none absolute inset-x-0 bottom-0 z-10 h-32"
         style={{
-          background:
-            "linear-gradient(to top, rgba(3,8,17,0.55), transparent)",
+          background: "linear-gradient(to top, rgba(3,8,17,0.55), transparent)",
         }}
       />
-      <TopHeader
-        total={locations.length}
-        visited={counts.visited}
-        wishlist={counts.wishlist}
-        notes={Object.keys(allNotes).length}
-      />
-      <RegionBreadcrumb region={region} onClear={() => setRegion("all")} />
-      <BottomBar
-        status={status}
-        onStatus={setStatus}
-        region={region}
-        onRegion={setRegion}
-        availableRegions={availableRegions}
-      />
+      {/* Right gradient — subtle backdrop behind the open lightbox */}
+      {selected && (
+        <div
+          aria-hidden
+          className="pointer-events-none absolute inset-y-0 right-0 z-10 w-[460px] transition-opacity duration-500"
+          style={{
+            background:
+              "linear-gradient(to right, transparent, rgba(0,0,0,0.55) 40%, rgba(0,0,0,0.75) 100%)",
+          }}
+        />
+      )}
+
+      {/* HUD */}
+      <div
+        className={`transition-opacity duration-500 ${
+          hudHidden ? "pointer-events-none opacity-0" : "opacity-100"
+        }`}
+      >
+        <LocationList
+          locations={filtered}
+          selectedId={selected?.id ?? null}
+          onSelect={handleSelect}
+        />
+        <TopHeader
+          total={locations.length}
+          visited={counts.visited}
+          wishlist={counts.wishlist}
+          notes={Object.keys(allNotes).length}
+        />
+        <BottomBar
+          status={status}
+          onStatus={setStatus}
+          region={region}
+          onRegion={setRegion}
+          availableRegions={availableRegions}
+        />
+        <SurpriseButton
+          locations={locations}
+          statuses={bucketStatuses}
+          onSelect={handleSelect}
+          currentId={selected?.id ?? flyTarget?.id ?? null}
+        />
+      </div>
+
+      {/* Clean-mode hint */}
+      {hudHidden && hintVisible && (
+        <div
+          aria-live="polite"
+          className="pointer-events-none absolute bottom-6 left-1/2 z-40 -translate-x-1/2 rounded-full border border-white/10 bg-black/60 px-4 py-2 text-[11px] tracking-[0.2em] text-white/75 backdrop-blur-md animate-[fadeIn_0.3s_ease]"
+        >
+          按{" "}
+          <kbd className="rounded bg-white/15 px-1.5 py-0.5 font-mono text-[10px]">
+            H
+          </kbd>{" "}
+          恢复界面
+        </div>
+      )}
+
       <LocationLightbox
         location={selected}
         onClose={() => {
@@ -119,17 +198,6 @@ export default function Home() {
           setFlyTarget(null);
         }}
       />
-      {/* hidden but kept for a11y */}
-      <button
-        onClick={() => {
-          const random = filtered[Math.floor(Math.random() * filtered.length)];
-          if (random) handleSelect(random);
-        }}
-        className="sr-only"
-        aria-hidden
-      >
-        shuffle
-      </button>
     </div>
   );
 }

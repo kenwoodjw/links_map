@@ -14,6 +14,7 @@
  */
 import fs from "node:fs";
 import path from "node:path";
+import { fileURLToPath } from "node:url";
 
 type ExtractedLocation = {
   name: string;
@@ -34,7 +35,7 @@ type VideoLocations = {
 type NominatimHit = { lat: string; lon: string; display_name: string };
 type CacheEntry = { lat: number; lng: number; resolvedName: string } | { failed: true };
 
-const ROOT = path.resolve(import.meta.dirname, "..");
+const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 const IN_JSON = path.join(ROOT, "raw/locations-raw.json");
 const OUT_JSON = path.join(ROOT, "data/locations.json");
 const CACHE_JSON = path.join(ROOT, "raw/geocode-cache.json");

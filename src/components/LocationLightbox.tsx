@@ -69,10 +69,17 @@ export default function LocationLightbox({ location, onClose }: Props) {
     [location]
   );
   const frameStatuses = useFrameStatuses(allFrames);
-  const frames = useMemo(
-    () => allFrames.filter((f) => frameStatuses[f.key] === "valid"),
-    [allFrames, frameStatuses]
-  );
+  // Deduplicate by videoId — keeps only the first valid candidate per video
+  // (maxresdefault wins over hqdefault when both are valid, since it comes first).
+  const frames = useMemo(() => {
+    const seen = new Set<string>();
+    return allFrames.filter((f) => {
+      if (frameStatuses[f.key] !== "valid") return false;
+      if (seen.has(f.videoId)) return false;
+      seen.add(f.videoId);
+      return true;
+    });
+  }, [allFrames, frameStatuses]);
   const pendingCount = useMemo(
     () =>
       allFrames.filter((f) => frameStatuses[f.key] === "loading").length,
@@ -121,20 +128,19 @@ export default function LocationLightbox({ location, onClose }: Props) {
   const next = () => setFrameIdx((i) => (i + 1) % frames.length);
 
   return (
-    <div
-      className="fixed inset-0 z-50 flex items-center justify-center p-4 sm:p-6"
-      onClick={onClose}
-      role="dialog"
-      aria-modal="true"
-    >
-      {/* Subtle backdrop */}
-      <div className="absolute inset-0 bg-black/50 backdrop-blur-[2px]" />
-
-      {/* Card */}
+    <>
+      {/* Right-side panel — slides in from the right edge */}
       <div
-        className="relative w-full max-w-lg overflow-hidden rounded-2xl border border-white/10 bg-black/75 text-white shadow-[0_20px_60px_rgba(0,0,0,0.6)] backdrop-blur-xl"
-        onClick={(e) => e.stopPropagation()}
+        className="fixed inset-y-0 right-0 z-50 flex items-center p-3 sm:p-5 pointer-events-none"
+        role="dialog"
+        aria-modal="true"
       >
+        {/* Card */}
+        <div
+          className="pointer-events-auto relative flex w-full max-w-[400px] flex-col overflow-hidden rounded-2xl border border-white/10 bg-black/80 text-white shadow-[0_20px_60px_rgba(0,0,0,0.7)] backdrop-blur-xl animate-[slideInRight_0.38s_cubic-bezier(0.22,1,0.36,1)]"
+          style={{ maxHeight: "calc(100vh - 2.5rem)" }}
+          onClick={(e) => e.stopPropagation()}
+        >
         {/* Close */}
         <button
           onClick={onClose}
@@ -146,30 +152,28 @@ export default function LocationLightbox({ location, onClose }: Props) {
           </svg>
         </button>
 
-        {/* Gallery area */}
-        <div className="relative aspect-video w-full overflow-hidden bg-black">
-          {/* Skeleton shimmer while the image streams in */}
-          {!imgLoaded && (
-            <div
-              aria-hidden
-              className="absolute inset-0 animate-[shimmer_1.8s_ease-in-out_infinite] bg-[length:200%_100%]"
-              style={{
-                background:
-                  "linear-gradient(90deg, rgba(255,255,255,0.03) 0%, rgba(255,255,255,0.1) 50%, rgba(255,255,255,0.03) 100%)",
-                backgroundSize: "200% 100%",
-              }}
-            />
-          )}
+        {/* Gallery area — shrink-0 so the body below can flex-scroll */}
+        <div className="relative aspect-video w-full shrink-0 overflow-hidden bg-black">
+          {/* Blurred placeholder — hqdefault is already cached from the marker
+              thumbnail, so it appears instantly and eliminates the black flash. */}
+          {/* eslint-disable-next-line @next/next/no-img-element */}
+          <img
+            src={`https://i.ytimg.com/vi/${frame.videoId}/hqdefault.jpg`}
+            aria-hidden
+            alt=""
+            className={`absolute inset-0 h-full w-full scale-110 object-cover blur-lg transition-opacity duration-500 ${
+              imgLoaded ? "opacity-0" : "opacity-100"
+            }`}
+          />
+          {/* Main image — fades in sharp once loaded */}
           {/* eslint-disable-next-line @next/next/no-img-element */}
           <img
             key={frame.key}
             src={frame.url}
             alt={frame.videoTitle}
             onLoad={() => setImgLoaded(true)}
-            className={`h-full w-full object-cover transition-opacity duration-300 ${
-              imgLoaded
-                ? "animate-[fadeIn_0.3s_ease] opacity-100"
-                : "opacity-0"
+            className={`relative h-full w-full object-cover transition-opacity duration-500 ${
+              imgLoaded ? "opacity-100" : "opacity-0"
             }`}
           />
 
@@ -242,8 +246,8 @@ export default function LocationLightbox({ location, onClose }: Props) {
           )}
         </div>
 
-        {/* Body */}
-        <div className="px-5 pt-4 pb-5">
+        {/* Body — scrollable when content overflows in the side panel */}
+        <div className="scroll-hidden flex-1 overflow-y-auto px-5 pt-4 pb-5">
           <h2 className="font-serif text-2xl tracking-wide">{location.name}</h2>
           <p className="mt-0.5 text-xs uppercase tracking-[0.2em] text-white/50">
             {location.country}
@@ -297,7 +301,7 @@ export default function LocationLightbox({ location, onClose }: Props) {
               }
             />
             <span className="ml-auto text-[10px] uppercase tracking-widest text-white/40">
-              {location.videos.length} 个视频 · {frames.length} 张画面
+              {location.videos.length} 个视频
             </span>
           </div>
 
@@ -346,8 +350,9 @@ export default function LocationLightbox({ location, onClose }: Props) {
             </div>
           )}
         </div>
+        </div>
       </div>
-    </div>
+    </>
   );
 }
 

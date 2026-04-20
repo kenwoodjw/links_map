@@ -64,10 +64,37 @@ body {
   to   { opacity: 1; transform: translate(-50%, 0); }
 }
 
+/* Location card slide-in from right edge */
+@keyframes slideInRight {
+  from { opacity: 0; transform: translateX(28px); }
+  to   { opacity: 1; transform: translateX(0); }
+}
+
+/* Location list slide-in from left edge */
+@keyframes slideInLeft {
+  from { opacity: 0; transform: translateX(-28px); }
+  to   { opacity: 1; transform: translateX(0); }
+}
+
 /* Skeleton shimmer — moving highlight across a placeholder */
 @keyframes shimmer {
   0%   { background-position: -150% 0; }
   100% { background-position: 250% 0; }
+}
+
+/* Ambient star twinkle — only a subset of stars use this, so the field
+   doesn't feel like it's uniformly blinking. */
+@keyframes twinkle {
+  0%, 100% { opacity: 0.2;  transform: scale(0.85); }
+  50%      { opacity: 0.95; transform: scale(1.15); }
+}
+
+/* Hide scrollbar chrome while keeping scroll functionality */
+.scroll-hidden {
+  scrollbar-width: none;
+}
+.scroll-hidden::-webkit-scrollbar {
+  display: none;
 }
 
 /* Respect user's reduce-motion preference */

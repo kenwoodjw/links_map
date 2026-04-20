@@ -29,45 +29,57 @@ export default function BottomBar({
   onRegion,
   availableRegions,
 }: Props) {
-  return (
-    <div className="pointer-events-none absolute inset-x-0 bottom-0 z-20 flex flex-wrap items-center justify-center gap-2 p-3 sm:gap-4 sm:p-6">
-      {/* Group 1: Personal status */}
-      <FilterGroup label="状态">
-        <Chip active={status === "all"} onClick={() => onStatus("all")}>
-          全部
-        </Chip>
-        <Chip
-          active={status === "visited"}
-          onClick={() => onStatus("visited")}
-          accent="emerald"
-        >
-          ✓ 已打卡
-        </Chip>
-        <Chip
-          active={status === "wishlist"}
-          onClick={() => onStatus("wishlist")}
-          accent="amber"
-        >
-          ♡ 想去
-        </Chip>
-      </FilterGroup>
+  const statusGroup = (
+    <FilterGroup label="状态">
+      <Chip active={status === "all"} onClick={() => onStatus("all")}>
+        全部
+      </Chip>
+      <Chip
+        active={status === "visited"}
+        onClick={() => onStatus("visited")}
+        accent="emerald"
+      >
+        ✓ 已打卡
+      </Chip>
+      <Chip
+        active={status === "wishlist"}
+        onClick={() => onStatus("wishlist")}
+        accent="amber"
+      >
+        ♡ 想去
+      </Chip>
+    </FilterGroup>
+  );
 
-      {/* Group 2: Region navigation */}
-      <FilterGroup label="地区" scrollable>
-        <Chip active={region === "all"} onClick={() => onRegion("all")}>
-          Global
+  const regionGroup = (
+    <FilterGroup label="地区" scrollable>
+      <Chip active={region === "all"} onClick={() => onRegion("all")}>
+        Global
+      </Chip>
+      {REGION_ORDER.filter((r) => availableRegions.includes(r)).map((r) => (
+        <Chip key={r} active={region === r} onClick={() => onRegion(r)}>
+          {REGION_LABEL[r]}
         </Chip>
-        {REGION_ORDER.filter((r) => availableRegions.includes(r)).map((r) => (
-          <Chip
-            key={r}
-            active={region === r}
-            onClick={() => onRegion(r)}
-          >
-            {REGION_LABEL[r]}
-          </Chip>
-        ))}
-      </FilterGroup>
-    </div>
+      ))}
+    </FilterGroup>
+  );
+
+  return (
+    <>
+      {/* Mobile: stacked, centered, wrap naturally. */}
+      <div className="pointer-events-none absolute inset-x-0 bottom-0 z-20 flex flex-wrap items-center justify-center gap-2 p-3 sm:hidden">
+        {statusGroup}
+        {regionGroup}
+      </div>
+
+      {/* Desktop: status left, region center. Surprise button owns the right. */}
+      <div className="pointer-events-none absolute bottom-5 left-5 z-20 hidden sm:block">
+        {statusGroup}
+      </div>
+      <div className="pointer-events-none absolute bottom-5 left-1/2 z-20 hidden -translate-x-1/2 sm:block">
+        {regionGroup}
+      </div>
+    </>
   );
 }
 
