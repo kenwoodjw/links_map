@@ -71,6 +71,8 @@ pnpm tsx scripts/geocode.ts
 
 ## 部署
 
+**线上地址：** https://links-map.vercel.app
+
 ```bash
 pnpm vercel --prod
 ```
