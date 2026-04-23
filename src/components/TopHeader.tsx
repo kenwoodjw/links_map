@@ -58,53 +58,61 @@ function StatsNarrative({
   const percent = total > 0 ? (visited / total) * 100 : 0;
   const remaining = Math.max(0, total - visited);
   const percentLabel =
-    percent >= 100 ? "100%" : percent > 0 ? `${percent.toFixed(1)}%` : "";
+    percent >= 100 ? "100%" : percent > 0 ? `${percent.toFixed(1)}%` : "0%";
 
   return (
-    <div className="pointer-events-none absolute right-3 top-3 z-20 flex max-w-[62vw] flex-col items-end text-right sm:right-5 sm:top-5 sm:max-w-[40vw]">
-      <div className="pointer-events-auto">
-        {visited === 0 ? (
-          <div className="font-serif text-sm tracking-wide text-white/85 sm:text-base">
-            <span className="tabular-nums text-white">{total}</span>
-            <span className="text-white/60"> 处等你开启第一次</span>
-            <span className="ml-1 text-amber-300/80">✨</span>
+    <div className="pointer-events-none absolute right-3 top-3 z-20 flex max-w-[72vw] flex-col items-end text-right sm:right-5 sm:top-5 sm:max-w-[420px]">
+      <div className="pointer-events-auto rounded-[22px] border border-white/12 bg-black/48 px-4 py-3 shadow-[0_12px_36px_rgba(0,0,0,0.38)] backdrop-blur-xl">
+        <div className="flex items-start justify-between gap-4">
+          <div>
+            <div className="text-[10px] uppercase tracking-[0.26em] text-white/45">
+              旅程进度
+            </div>
+            <div className="mt-2 flex items-end gap-2">
+              <div className="font-serif text-3xl leading-none tracking-[0.04em] text-white/95 tabular-nums sm:text-4xl">
+                {visited}
+              </div>
+              <div className="pb-1 text-xs tracking-[0.18em] text-white/40">
+                / {total}
+              </div>
+            </div>
           </div>
-        ) : visited >= total ? (
-          <>
-            <div className="font-serif text-2xl leading-none tracking-wide text-amber-200 tabular-nums sm:text-3xl">
-              100%
-            </div>
-            <div className="mt-1 text-[9px] uppercase tracking-[0.22em] text-amber-200/70 sm:text-[10px]">
-              你已走遍地球上的每一处 ✨
-            </div>
-          </>
-        ) : (
-          <>
-            <div className="font-serif text-xl leading-none tracking-wide text-white/95 tabular-nums sm:text-2xl">
-              {percentLabel}
-            </div>
-            <div className="mt-1 text-[9px] uppercase tracking-[0.22em] text-white/55 sm:text-[10px]">
-              <span className="text-emerald-300/80">已走过地球</span>
-              <span className="mx-1.5 text-white/30">·</span>
-              <span>还有 </span>
-              <span className="tabular-nums text-white/85">{remaining}</span>
-              <span> 处在等你</span>
-            </div>
-          </>
-        )}
-        {(wishlist > 0 || notes > 0) && (
-          <div className="mt-2 flex items-center justify-end gap-2 text-[10px] sm:text-[11px]">
-            {wishlist > 0 && (
-              <span className="tabular-nums text-amber-300/75">♡ {wishlist} 想去</span>
-            )}
-            {wishlist > 0 && notes > 0 && (
-              <span className="h-2.5 w-px bg-white/15" />
-            )}
-            {notes > 0 && (
-              <span className="tabular-nums text-sky-300/75">✎ {notes} 笔记</span>
-            )}
+          <div className="rounded-full border border-white/10 bg-white/[0.04] px-2.5 py-1 text-[10px] uppercase tracking-[0.2em] text-white/55">
+            {percentLabel}
           </div>
-        )}
+        </div>
+
+        <div className="mt-3 h-1.5 overflow-hidden rounded-full bg-white/8">
+          <div
+            className={`h-full rounded-full ${
+              visited >= total ? "bg-amber-300" : "bg-gradient-to-r from-emerald-400 to-sky-300"
+            }`}
+            style={{ width: `${Math.max(6, percent)}%` }}
+          />
+        </div>
+
+        <div className="mt-3 flex flex-wrap justify-end gap-2 text-[10px] sm:text-[11px]">
+          <span className="rounded-full border border-emerald-400/20 bg-emerald-400/10 px-2.5 py-1 tabular-nums text-emerald-200/90">
+            已去 {visited}
+          </span>
+          <span className="rounded-full border border-amber-300/20 bg-amber-300/10 px-2.5 py-1 tabular-nums text-amber-200/90">
+            想去 {wishlist}
+          </span>
+          <span className="rounded-full border border-sky-300/20 bg-sky-300/10 px-2.5 py-1 tabular-nums text-sky-200/90">
+            笔记 {notes}
+          </span>
+          <span className="rounded-full border border-white/10 bg-white/[0.04] px-2.5 py-1 tabular-nums text-white/70">
+            待探索 {remaining}
+          </span>
+        </div>
+
+        <div className="mt-3 flex items-center justify-end gap-2 text-[10px] uppercase tracking-[0.2em] text-white/42">
+          <span>按</span>
+          <kbd className="rounded bg-white/10 px-1.5 py-0.5 font-mono text-[10px] text-white/72">
+            H
+          </kbd>
+          <span>隐藏 HUD</span>
+        </div>
       </div>
     </div>
   );

@@ -7,7 +7,6 @@ import LocationLightbox from "@/components/LocationLightbox";
 import LocationList from "@/components/LocationList";
 import TopHeader from "@/components/TopHeader";
 import BottomBar, { type StatusFilter } from "@/components/BottomBar";
-import SurpriseButton from "@/components/SurpriseButton";
 import StarField from "@/components/StarField";
 import { regionOf, REGION_VIEW, type Region } from "@/lib/regions";
 import { useAllBucketStatuses } from "@/lib/bucketList";
@@ -60,7 +59,28 @@ export default function Home() {
 
   const handleSelect = (loc: Location) => {
     setFlyTarget(loc);
-    setTimeout(() => setSelected(loc), 900);
+    setSelected(loc);
+  };
+
+  const handleSurprise = () => {
+    const notCurrent = (loc: Location) =>
+      loc.id !== selected?.id && loc.id !== flyTarget?.id;
+
+    const wishlist = filtered.filter(
+      (loc) => bucketStatuses[loc.id] === "wishlist" && notCurrent(loc)
+    );
+    const pool =
+      wishlist.length > 0
+        ? wishlist
+        : filtered.filter(
+            (loc) => bucketStatuses[loc.id] !== "visited" && notCurrent(loc)
+          );
+    const fallback = filtered.filter(notCurrent);
+    const source = pool.length > 0 ? pool : fallback;
+
+    if (source.length === 0) return;
+    const next = source[Math.floor(Math.random() * source.length)];
+    handleSelect(next);
   };
 
   const regionTarget = region === "all" ? null : REGION_VIEW[region];
@@ -168,12 +188,7 @@ export default function Home() {
           region={region}
           onRegion={setRegion}
           availableRegions={availableRegions}
-        />
-        <SurpriseButton
-          locations={locations}
-          statuses={bucketStatuses}
-          onSelect={handleSelect}
-          currentId={selected?.id ?? flyTarget?.id ?? null}
+          onSurprise={handleSurprise}
         />
       </div>
 
