@@ -21,10 +21,39 @@ export const REGION_VIEW: Record<Region, { lng: number; lat: number; zoom: numbe
   polar: { lng: 0, lat: 78, zoom: 2.0 },
 };
 
-/** Rough region bucketing by lat/lng. Good enough for a ~30-100 location bucket list. */
-export function regionOf(loc: Pick<Location, "lat" | "lng">): Region {
+const COUNTRY_REGION: Record<string, Region> = {
+  中国: "asia",
+  日本: "asia",
+  也门: "asia",
+  中东: "asia",
+  俄罗斯: "asia",
+  冰岛: "europe",
+  葡萄牙: "europe",
+  挪威: "europe",
+  芬兰: "europe",
+  英国: "europe",
+  意大利: "europe",
+  瑞典: "europe",
+  瑞士: "europe",
+  丹麦: "europe",
+  奥地利: "europe",
+  美国: "americas",
+  加拿大: "americas",
+  格陵兰: "polar",
+  北极地区: "polar",
+};
+
+/**
+ * Bucket locations by region. Named country/region wins first because geocoding
+ * broad place names like "Arctic Circle" or "Middle East" can return bad points.
+ */
+export function regionOf(
+  loc: Pick<Location, "lat" | "lng"> & Partial<Pick<Location, "country" | "name">>
+): Region {
   const { lat, lng } = loc;
   if (lat > 66 || lat < -60) return "polar";
+  if (loc.country && COUNTRY_REGION[loc.country]) return COUNTRY_REGION[loc.country];
+  if (loc.name === "中东") return "asia";
   // Americas: -170 to -30
   if (lng < -30) return "americas";
   // Africa: lng -20..55 & lat -35..20 (rough; overlap with Europe/Asia handled by order below)

@@ -43,9 +43,9 @@
   {
     "id": "middle-east-null",
     "name": "中东",
-    "country": null,
-    "lat": 39.3014159,
-    "lng": -76.5888477,
+    "country": "中东",
+    "lat": 29.2985,
+    "lng": 42.551,
     "confidence": "medium",
     "videos": [
       {
@@ -338,8 +338,8 @@
     "id": "arctic-circle-北极地区",
     "name": "北极圈",
     "country": "北极地区",
-    "lat": 31.3444091,
-    "lng": 121.5014827,
+    "lat": 66.5622,
+    "lng": -45,
     "confidence": "medium",
     "videos": [
       {
@@ -699,8 +699,8 @@
     "id": "northernmost-tip-of-japan-日本",
     "name": "日本最北端",
     "country": "日本",
-    "lat": 35.0045535,
-    "lng": 135.7586522,
+    "lat": 45.5228,
+    "lng": 141.9368,
     "confidence": "high",
     "videos": [
       {
@@ -854,8 +854,8 @@
     "id": "icelandic-highlands-冰岛",
     "name": "冰岛高地",
     "country": "冰岛",
-    "lat": 34.6518226,
-    "lng": 135.1275128,
+    "lat": 64.9631,
+    "lng": -19.0208,
     "confidence": "high",
     "videos": [
       {
@@ -1628,8 +1628,8 @@
     "id": "mount-tanigawa-日本",
     "name": "谷川岳",
     "country": "日本",
-    "lat": 34.7102536,
-    "lng": 135.1918228,
+    "lat": 36.837,
+    "lng": 138.9309,
     "confidence": "high",
     "videos": [
       {
@@ -1710,8 +1710,8 @@
     "id": "oze-日本",
     "name": "尾濑之原",
     "country": "日本",
-    "lat": 35.802449,
-    "lng": 139.8515417,
+    "lat": 36.9327,
+    "lng": 139.2386,
     "confidence": "medium",
     "videos": [
       {
@@ -1727,8 +1727,8 @@
     "id": "yari-hotaka-日本",
     "name": "枪穗",
     "country": "日本",
-    "lat": 32.7039878,
-    "lng": 131.2984537,
+    "lat": 36.2892,
+    "lng": 137.6481,
     "confidence": "medium",
     "videos": [
       {
@@ -2289,8 +2289,8 @@
     "id": "tanigawa-range-日本",
     "name": "谷川连峰",
     "country": "日本",
-    "lat": 35.0308914,
-    "lng": 135.7561454,
+    "lat": 36.8491,
+    "lng": 138.9167,
     "confidence": "high",
     "videos": [
       {
