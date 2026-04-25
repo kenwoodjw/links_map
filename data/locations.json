@@ -991,8 +991,8 @@
     "id": "kamo-shrine-日本",
     "name": "贺茂神社",
     "country": "日本",
-    "lat": 34.4179904,
-    "lng": 134.0554155,
+    "lat": 35.0562,
+    "lng": 135.7517,
     "confidence": "high",
     "videos": [
       {
@@ -1025,8 +1025,8 @@
     "id": "lofoten-挪威",
     "name": "挪威罗弗敦群岛",
     "country": "挪威",
-    "lat": 60.5112045,
-    "lng": 5.5375292,
+    "lat": 68.166672,
+    "lng": 13.75,
     "confidence": "high",
     "videos": [
       {
@@ -2034,8 +2034,8 @@
     "id": "mount-tsurugi-日本",
     "name": "剑岳",
     "country": "日本",
-    "lat": 33.8535794,
-    "lng": 134.0942858,
+    "lat": 36.6233,
+    "lng": 137.6172,
     "confidence": "high",
     "videos": [
       {
@@ -2255,8 +2255,8 @@
     "id": "sengaku-san-日本",
     "name": "仙仓山",
     "country": "日本",
-    "lat": 34.6455812,
-    "lng": 133.8672331,
+    "lat": 36.817513,
+    "lng": 138.839507,
     "confidence": "high",
     "videos": [
       {
