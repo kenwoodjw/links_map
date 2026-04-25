@@ -44,6 +44,10 @@ const SATELLITE_STYLE = {
   ],
 } satisfies StyleSpecification;
 
+const ROTATION_LNG_PER_FRAME = -0.018;
+const ROTATION_STOP_ZOOM = 2.45;
+const LOCATION_FLY_ZOOM = 3.65;
+
 function ringColor(status: BucketStatus): string {
   if (status === "visited") return "#10b981"; // emerald
   if (status === "wishlist") return "#f59e0b"; // amber
@@ -162,8 +166,10 @@ export default function GlobeMap({
       stopRotate();
       mapRef.current.flyTo({
         center: [flyTarget.lng, flyTarget.lat],
-        zoom: 4,
-        duration: 1600,
+        zoom: LOCATION_FLY_ZOOM,
+        duration: 1900,
+        speed: 0.55,
+        curve: 1.1,
         essential: true,
       });
     }
@@ -177,7 +183,9 @@ export default function GlobeMap({
       mapRef.current.flyTo({
         center: [regionTarget.lng, regionTarget.lat],
         zoom: regionTarget.zoom,
-        duration: 1800,
+        duration: 2000,
+        speed: 0.5,
+        curve: 1.05,
         essential: true,
       });
     }
@@ -194,8 +202,11 @@ export default function GlobeMap({
         return;
       }
       const center = map.getCenter();
-      // ~6 degrees per second → a full rotation in a minute
-      map.setCenter([center.lng + 0.1, center.lat]);
+      const zoom = map.getZoom();
+      if (zoom < ROTATION_STOP_ZOOM) {
+        const zoomFactor = Math.max(0.15, 1 - (zoom - 1.1) / (ROTATION_STOP_ZOOM - 1.1));
+        map.setCenter([center.lng + ROTATION_LNG_PER_FRAME * zoomFactor, center.lat]);
+      }
       rotationRafRef.current = requestAnimationFrame(tick);
     };
     rotationRafRef.current = requestAnimationFrame(tick);
@@ -214,6 +225,14 @@ export default function GlobeMap({
     if (map.setProjection) {
       map.setProjection({ type: "globe" });
     }
+    map.dragPan.disable();
+    map.dragPan.enable({
+      linearity: 0.12,
+      maxSpeed: 420,
+      deceleration: 5200,
+    });
+    map.scrollZoom.setZoomRate(1 / 180);
+    map.scrollZoom.setWheelZoomRate(1 / 900);
     if (map.setSky) {
       map.setSky(
         isSatellite
@@ -404,7 +423,7 @@ export default function GlobeMap({
       ref={mapRef}
       initialViewState={{ longitude: 110, latitude: 30, zoom: 1.35, pitch: 22 }}
       minZoom={1.1}
-      maxZoom={5.5}
+      maxZoom={4.6}
       mapStyle={isSatellite ? SATELLITE_STYLE : DARK_STYLE}
       onLoad={handleLoad}
       onMouseDown={() => (userInteractingRef.current = true)}
