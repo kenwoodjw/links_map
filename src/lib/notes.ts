@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useLocalRecords } from "./storage";
 
 export type Note = {
   /** free-form text */
@@ -16,9 +16,9 @@ const EVENT = "links_map:note-changed";
 
 export function getNote(id: string): Note | null {
   if (typeof window === "undefined") return null;
-  const raw = window.localStorage.getItem(KEY_PREFIX + id);
-  if (!raw) return null;
   try {
+    const raw = window.localStorage.getItem(KEY_PREFIX + id);
+    if (!raw) return null;
     const parsed = JSON.parse(raw) as Note;
     if (typeof parsed.text !== "string") return null;
     return parsed;
@@ -56,37 +56,20 @@ export function getAllNotes(): Record<string, Note> {
   return out;
 }
 
-/** React hook: subscribes to one location's note. */
 export function useNote(
-  id: string
+  id: string,
 ): [Note | null, (next: Note | null) => void] {
-  const [n, setN] = useState<Note | null>(null);
-  useEffect(() => {
-    setN(getNote(id));
-    const handler = (e: Event) => {
-      const ce = e as CustomEvent<{ id: string; note: Note | null }>;
-      if (ce.detail.id === id) setN(ce.detail.note);
-    };
-    window.addEventListener(EVENT, handler);
-    return () => window.removeEventListener(EVENT, handler);
-  }, [id]);
-  return [n, (next) => setNote(id, next)];
+  const all = useAllNotes();
+  return [all[id] ?? null, (next) => setNote(id, next)];
 }
 
-/** React hook: subscribes to the full map of notes. */
 export function useAllNotes(): Record<string, Note> {
-  const [all, setAll] = useState<Record<string, Note>>({});
-  useEffect(() => {
-    setAll(getAllNotes());
-    const handler = () => setAll(getAllNotes());
-    window.addEventListener(EVENT, handler);
-    window.addEventListener("storage", handler);
-    return () => {
-      window.removeEventListener(EVENT, handler);
-      window.removeEventListener("storage", handler);
-    };
-  }, []);
-  return all;
+  const all = useLocalRecords<Note>(KEY_PREFIX, EVENT);
+  return Object.fromEntries(
+    Object.entries(all).filter(
+      ([, value]) => value && typeof value.text === "string",
+    ),
+  );
 }
 
 /** Human-readable "saved just now / 3 min ago". */
@@ -102,6 +85,6 @@ export function formatSavedAgo(updatedAt: number, now = Date.now()): string {
   if (day < 30) return `${day} 天前`;
   const d = new Date(updatedAt);
   return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(
-    d.getDate()
+    d.getDate(),
   ).padStart(2, "0")}`;
 }

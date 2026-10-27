@@ -31,8 +31,8 @@ function buildStars(): Star[] {
       x: rand() * 100,
       y: rand() * 100,
       r: 0.5 + rand() * 1.3,
-      o: 0.25 + rand() * 0.45,
-      twinkle: rand() < 0.18,
+      o: 0.15 + rand() * 0.25,
+      twinkle: false,
       delay: rand() * 6,
     });
   }
@@ -42,14 +42,14 @@ function buildStars(): Star[] {
 /**
  * Ambient star field — 110 deterministically-placed white dots behind the
  * vignette and scrims, above the globe canvas. Uses a seeded RNG so SSR and
- * CSR output match, and a ~18% subset of stars gently twinkle.
+ * CSR output match. Stars stay static during exploration.
  *
- * Kept subtle (opacity ≤ 0.7, size ≤ 1.8px): clearly present in the black
+ * Kept subtle (opacity ≤ 0.4, size ≤ 1.8px): clearly present in the black
  * space surrounding the globe, barely perceptible over the globe itself —
  * reads as "cosmic dust", not noise.
  */
 export default function StarField() {
-  const stars = useMemo(buildStars, []);
+  const stars = useMemo(() => buildStars(), []);
   return (
     <div
       aria-hidden

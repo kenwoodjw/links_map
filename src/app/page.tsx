@@ -1,12 +1,20 @@
 "use client";
 
 import dynamic from "next/dynamic";
-import { useEffect, useMemo, useState } from "react";
+import {
+  useCallback,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+  useSyncExternalStore,
+} from "react";
 import { locations } from "@/lib/locations";
 import LocationLightbox from "@/components/LocationLightbox";
 import LocationList from "@/components/LocationList";
-import TopHeader from "@/components/TopHeader";
-import BottomBar, { type StatusFilter } from "@/components/BottomBar";
+import TopHeader, { StatsContent } from "@/components/TopHeader";
+import BottomBar, { Filters, type StatusFilter } from "@/components/BottomBar";
+import Panel from "@/components/Panel";
 import StarField from "@/components/StarField";
 import { regionOf, REGION_VIEW, type Region } from "@/lib/regions";
 import { useAllBucketStatuses } from "@/lib/bucketList";
@@ -16,203 +24,348 @@ import type { Location } from "@/lib/types";
 const GlobeMap = dynamic(() => import("@/components/GlobeMap"), {
   ssr: false,
   loading: () => (
-    <div className="flex h-full items-center justify-center bg-black text-white/50 text-sm tracking-widest">
-      加载地球...
+    <div className="map-loading" role="status">
+      正在加载地球…
     </div>
   ),
 });
-
+const subscribeSize = (notify: () => void) => {
+  const mq = matchMedia("(max-width: 1023px)");
+  mq.addEventListener("change", notify);
+  return () => mq.removeEventListener("change", notify);
+};
+type Screen = "map" | "list" | "detail" | "filters" | "stats";
 export default function Home() {
+  const mobile = useSyncExternalStore(
+    subscribeSize,
+    () => matchMedia("(max-width: 1023px)").matches,
+    () => false,
+  );
   const [selected, setSelected] = useState<Location | null>(null);
   const [flyTarget, setFlyTarget] = useState<Location | null>(null);
+  const [screen, setScreen] = useState<Screen>("map");
+  const [listOpen, setListOpen] = useState(true);
+  const [listFocusTarget, setListFocusTarget] = useState<string>();
+  const [fromList, setFromList] = useState(false);
+  const [filterFromList, setFilterFromList] = useState(false);
   const [status, setStatus] = useState<StatusFilter>("all");
   const [region, setRegion] = useState<Region | "all">("all");
+  const [hudHidden, setHudHidden] = useState(false);
+  const trigger = useRef<HTMLElement | null>(null);
+  const statsTrigger = useRef<HTMLButtonElement>(null);
+  const restoreStatsFocus = useRef(false);
+  const utilityTrigger = useRef<HTMLElement | null>(null);
   const bucketStatuses = useAllBucketStatuses();
   const allNotes = useAllNotes();
-
-  const availableRegions = useMemo(() => {
-    const set = new Set<Region>();
-    for (const l of locations) set.add(regionOf(l));
-    return [...set];
-  }, []);
-
-  const filtered = useMemo(() => {
-    return locations.filter((l) => {
-      const s = bucketStatuses[l.id] ?? null;
-      if (status === "visited" && s !== "visited") return false;
-      if (status === "wishlist" && s !== "wishlist") return false;
-      if (region !== "all" && regionOf(l) !== region) return false;
-      return true;
-    });
-  }, [bucketStatuses, status, region]);
-
-  const counts = useMemo(() => {
-    let visited = 0;
-    let wishlist = 0;
-    for (const l of locations) {
-      const s = bucketStatuses[l.id];
-      if (s === "visited") visited++;
-      else if (s === "wishlist") wishlist++;
-    }
-    return { visited, wishlist };
-  }, [bucketStatuses]);
-
-  const handleSelect = (loc: Location) => {
-    setFlyTarget(loc);
-    setSelected(loc);
+  const availableRegions = useMemo(
+    () => [...new Set(locations.map(regionOf))],
+    [],
+  );
+  const filtered = useMemo(
+    () =>
+      locations.filter(
+        (l) =>
+          (status === "all" || bucketStatuses[l.id] === status) &&
+          (region === "all" || regionOf(l) === region),
+      ),
+    [bucketStatuses, status, region],
+  );
+  const counts = {
+    visited: locations.filter((l) => bucketStatuses[l.id] === "visited").length,
+    wishlist: locations.filter((l) => bucketStatuses[l.id] === "wishlist")
+      .length,
   };
-
-  const handleSurprise = () => {
-    const notCurrent = (loc: Location) =>
-      loc.id !== selected?.id && loc.id !== flyTarget?.id;
-
-    const wishlist = filtered.filter(
-      (loc) => bucketStatuses[loc.id] === "wishlist" && notCurrent(loc)
-    );
-    const pool =
-      wishlist.length > 0
-        ? wishlist
-        : filtered.filter(
-            (loc) => bucketStatuses[loc.id] !== "visited" && notCurrent(loc)
-          );
-    const fallback = filtered.filter(notCurrent);
-    const source = pool.length > 0 ? pool : fallback;
-
-    if (source.length === 0) return;
-    const next = source[Math.floor(Math.random() * source.length)];
-    handleSelect(next);
+  const stats = {
+    total: locations.length,
+    ...counts,
+    notes: Object.keys(allNotes).length,
   };
-
-  const regionTarget = region === "all" ? null : REGION_VIEW[region];
-
-  // "Clean mode" — press H to fade all HUD.
-  const [hudHidden, setHudHidden] = useState(false);
-  const [hintVisible, setHintVisible] = useState(false);
-  useEffect(() => {
-    const onKey = (e: KeyboardEvent) => {
-      if (selected) return;
-      const target = e.target as HTMLElement | null;
+  const modal = mobile && screen !== "map";
+  const restore = () =>
+    requestAnimationFrame(() => {
+      const el = trigger.current;
       if (
-        target &&
-        (target.tagName === "INPUT" ||
-          target.tagName === "TEXTAREA" ||
-          target.isContentEditable)
-      ) {
-        return;
-      }
-      if (e.key.toLowerCase() === "h") {
-        setHudHidden((prev) => {
-          if (!prev) setHintVisible(true);
-          return !prev;
-        });
-      }
-    };
-    window.addEventListener("keydown", onKey);
-    return () => window.removeEventListener("keydown", onKey);
-  }, [selected]);
+        el?.isConnected &&
+        el.getClientRects().length &&
+        !el.closest("[inert], [hidden]")
+      )
+        el.focus({ preventScroll: true });
+      else
+        document
+          .querySelector<HTMLButtonElement>("[data-list-trigger]")
+          ?.focus();
+    });
+  const open = (next: Screen) => {
+    if (next === "list") setListFocusTarget(undefined);
+    if (screen === "map")
+      trigger.current = document.activeElement as HTMLElement;
+    setScreen(next);
+  };
+  const closeStats = () => {
+    restoreStatsFocus.current = true;
+    setScreen("map");
+  };
   useEffect(() => {
-    if (!hintVisible) return;
-    const t = setTimeout(() => setHintVisible(false), 3000);
-    return () => clearTimeout(t);
-  }, [hintVisible]);
-
+    if (screen === "map" && restoreStatsFocus.current) {
+      restoreStatsFocus.current = false;
+      // Wait for the remounted summary and the browser's inert update.
+      let frame = requestAnimationFrame(() => {
+        frame = requestAnimationFrame(() => statsTrigger.current?.focus({ preventScroll: true }));
+      });
+      return () => cancelAnimationFrame(frame);
+    }
+  }, [screen]);
+  const close = () => {
+    setScreen("map");
+    setSelected(null);
+    setFlyTarget(null);
+    restore();
+  };
+  const handleSelect = (loc: Location, source: boolean) => {
+    if (!source || !mobile)
+      trigger.current = document.activeElement as HTMLElement;
+    setFromList(source);
+    setSelected(loc);
+    setFlyTarget(loc);
+    setScreen("detail");
+  };
+  const returnToList = () => {
+    setListFocusTarget(`[data-location-id="${selected?.id}"]`);
+    setSelected(null);
+    setFlyTarget(null);
+    setScreen("list");
+  };
+  const randomSource = useMemo(() => {
+    const remaining = filtered.filter(
+      (l) => l.id !== selected?.id && l.id !== flyTarget?.id,
+    );
+    const wished = remaining.filter((l) => bucketStatuses[l.id] === "wishlist");
+    const unvisited = remaining.filter(
+      (l) => bucketStatuses[l.id] !== "visited",
+    );
+    return wished.length ? wished : unvisited.length ? unvisited : remaining;
+  }, [filtered, selected, flyTarget, bucketStatuses]);
+  const onSurprise = () => {
+    if (randomSource.length)
+      handleSelect(
+        randomSource[Math.floor(Math.random() * randomSource.length)],
+        false,
+      );
+  };
+  const reset = () => {
+    setStatus("all");
+    setRegion("all");
+  };
+  const openFilters = () => {
+    utilityTrigger.current = document.activeElement as HTMLElement;
+    setFilterFromList(mobile && screen === "list");
+    open("filters");
+  };
+  const finishFilters = () => {
+    if (filterFromList) setListFocusTarget(".list-count button");
+    setScreen(filterFromList ? "list" : selected ? "detail" : "map");
+    if (!filterFromList)
+      requestAnimationFrame(() =>
+        utilityTrigger.current?.focus({ preventScroll: true }),
+      );
+  };
+  const toggleHud = useCallback(() => setHudHidden((value) => !value), []);
+  useEffect(() => {
+    const handler = (e: KeyboardEvent) => {
+      if (
+        e.key.toLowerCase() !== "h" ||
+        screen !== "map" ||
+        (e.target as HTMLElement)?.closest(
+          'input, textarea, select, [contenteditable="true"]',
+        )
+      )
+        return;
+      toggleHud();
+    };
+    window.addEventListener("keydown", handler);
+    return () => window.removeEventListener("keydown", handler);
+  }, [screen, toggleHud]);
+  const listActive = !hudHidden && (mobile ? screen === "list" : listOpen);
+  const detailActive =
+    !hudHidden && selected !== null && (!mobile || screen === "detail");
   return (
-    <div className="relative h-screen w-screen overflow-hidden bg-black">
-      <GlobeMap
-        locations={filtered}
-        onSelect={handleSelect}
-        flyTarget={flyTarget}
-        regionTarget={regionTarget}
-        autoRotate={selected === null && flyTarget === null && region === "all"}
-        lightboxOpen={selected !== null}
-      />
-      <StarField />
-      {/* Vignette */}
-      <div
-        aria-hidden
-        className="pointer-events-none absolute inset-0 z-10"
-        style={{
-          background:
-            "radial-gradient(ellipse at center, transparent 55%, rgba(0,0,0,0.25) 85%, rgba(0,0,0,0.45) 100%)",
-        }}
-      />
-      {/* Top scrim */}
-      <div
-        aria-hidden
-        className="pointer-events-none absolute inset-x-0 top-0 z-10 h-40"
-        style={{
-          background:
-            "linear-gradient(to bottom, rgba(3,8,17,0.55), transparent)",
-        }}
-      />
-      {/* Bottom scrim */}
-      <div
-        aria-hidden
-        className="pointer-events-none absolute inset-x-0 bottom-0 z-10 h-32"
-        style={{
-          background: "linear-gradient(to top, rgba(3,8,17,0.55), transparent)",
-        }}
-      />
-      {/* Right gradient — subtle backdrop behind the open lightbox */}
-      {selected && (
-        <div
-          aria-hidden
-          className="pointer-events-none absolute inset-y-0 right-0 z-10 w-[460px] transition-opacity duration-500"
-          style={{
-            background:
-              "linear-gradient(to right, transparent, rgba(0,0,0,0.55) 40%, rgba(0,0,0,0.75) 100%)",
-          }}
+    <main className="app-shell">
+      <div className="map-background" inert={modal || hudHidden}>
+        <GlobeMap
+          locations={filtered}
+          onSelect={(l) => handleSelect(l, false)}
+          flyTarget={flyTarget}
+          regionTarget={region === "all" ? null : REGION_VIEW[region]}
+          autoRotate={screen === "map" && !flyTarget && region === "all"}
+          lightboxOpen={Boolean(selected)}
         />
-      )}
-
-      {/* HUD */}
-      <div
-        className={`transition-opacity duration-500 ${
-          hudHidden ? "pointer-events-none opacity-0" : "opacity-100"
-        }`}
+        <StarField />
+        <div className="map-vignette" />
+      </div>
+      <div className="map-hud" hidden={hudHidden} inert={modal}>
+        {(!listOpen || mobile) && (
+          <div className="brand-block">
+            <span className="brand-seal">清</span>
+            <div>
+              <strong>人生清单</strong>
+              <p>世界很大，慢慢走。</p>
+            </div>
+            {!mobile && (
+              <button
+                data-list-trigger
+                className="text-button"
+                onClick={() => setListOpen(true)}
+              >
+                ☰ 地点 {filtered.length}
+              </button>
+            )}
+          </div>
+        )}
+        {!selected && screen !== "stats" && (
+          <TopHeader {...stats} buttonRef={statsTrigger} onOpen={() => open("stats")} />
+        )}
+        <div
+          className={`map-caption ${listOpen ? "with-list" : ""}`}
+          hidden={Boolean(selected)}
+        >
+          <p>THE WORLD IS YOURS TO EXPLORE</p>
+          <h2>下一站，心之所向。</h2>
+          <span>{locations.length} 个地点 · 无数种出发的理由</span>
+        </div>
+        <BottomBar
+          onList={() => {
+            open("list");
+            setListOpen(true);
+          }}
+          onFilter={openFilters}
+          onSurprise={onSurprise}
+          count={filtered.length}
+          canSurprise={randomSource.length > 0}
+          listOpen={listOpen}
+          detailOpen={Boolean(selected)}
+        />
+      </div>
+      {modal && <div className="modal-backdrop" aria-hidden />}
+      <Panel
+        className="location-panel"
+        autoFocus={mobile}
+        initialFocusSelector={listFocusTarget}
+        active={listActive}
+        mobile={mobile}
+        title="地点列表"
+        onEscape={() => {
+          if (mobile) close();
+          else {
+            setListOpen(false);
+            if (!selected) setScreen("map");
+            requestAnimationFrame(() =>
+              document.activeElement === document.body && document
+                .querySelector<HTMLButtonElement>(".brand-block button")
+                ?.focus(),
+            );
+          }
+        }}
       >
         <LocationList
           locations={filtered}
           selectedId={selected?.id ?? null}
-          onSelect={handleSelect}
+          onSelect={(l) => handleSelect(l, true)}
+          onClose={() => {
+            if (mobile) close();
+            else {
+              setListOpen(false);
+              if (!selected) setScreen("map");
+              requestAnimationFrame(() =>
+                document.activeElement === document.body && document
+                  .querySelector<HTMLButtonElement>(".brand-block button")
+                  ?.focus(),
+              );
+            }
+          }}
+          onFilter={openFilters}
+          onReset={reset}
         />
-        <TopHeader
-          total={locations.length}
-          visited={counts.visited}
-          wishlist={counts.wishlist}
-          notes={Object.keys(allNotes).length}
-        />
-        <BottomBar
-          status={status}
-          onStatus={setStatus}
-          region={region}
-          onRegion={setRegion}
-          availableRegions={availableRegions}
-          onSurprise={handleSurprise}
-        />
-      </div>
-
-      {/* Clean-mode hint */}
-      {hudHidden && hintVisible && (
-        <div
-          aria-live="polite"
-          className="pointer-events-none absolute bottom-6 left-1/2 z-40 -translate-x-1/2 rounded-full border border-white/10 bg-black/60 px-4 py-2 text-[11px] tracking-[0.2em] text-white/75 backdrop-blur-md animate-[fadeIn_0.3s_ease]"
-        >
-          按{" "}
-          <kbd className="rounded bg-white/15 px-1.5 py-0.5 font-mono text-[10px]">
-            H
-          </kbd>{" "}
-          恢复界面
-        </div>
-      )}
-
-      <LocationLightbox
-        location={selected}
-        onClose={() => {
-          setSelected(null);
-          setFlyTarget(null);
+      </Panel>
+      <Panel
+        className="detail-panel"
+        active={detailActive}
+        mobile={mobile}
+        title={selected ? `${selected.name} 地点详情` : "地点详情"}
+        onEscape={() => {
+          if (mobile && fromList) returnToList();
+          else close();
         }}
-      />
-    </div>
+      >
+        {selected && (
+          <LocationLightbox
+            location={selected}
+            onClose={close}
+            onBack={mobile && fromList ? returnToList : undefined}
+          />
+        )}
+      </Panel>
+      <Panel
+        className="utility-panel"
+        active={!hudHidden && screen === "filters"}
+        mobile={mobile}
+        title="筛选地点"
+        onEscape={finishFilters}
+      >
+        <header className="panel-header">
+          <h2>筛选地点</h2>
+          <button
+            className="icon-button"
+            aria-label="关闭筛选"
+            onClick={finishFilters}
+          >
+            ×
+          </button>
+        </header>
+        <div className="utility-body">
+          <Filters
+            status={status}
+            onStatus={setStatus}
+            region={region}
+            onRegion={setRegion}
+            availableRegions={availableRegions}
+          />
+          <div className="filter-actions">
+            <button className="text-button" onClick={reset}>
+              重置地区与状态
+            </button>
+            <button className="primary-button" onClick={finishFilters}>
+              {filterFromList ? "返回列表" : `查看 ${filtered.length} 个地点`}
+            </button>
+          </div>
+        </div>
+      </Panel>
+      <Panel
+        className="stats-panel"
+        active={!hudHidden && screen === "stats"}
+        mobile={mobile}
+        title="旅程统计"
+        onEscape={closeStats}
+      >
+        <header className="panel-header">
+          <h2>我的足迹</h2>
+          <button
+            className="icon-button"
+            aria-label="收起统计"
+            onClick={closeStats}
+          >
+            ×
+          </button>
+        </header>
+        <StatsContent {...stats} />
+      </Panel>
+      {hudHidden && (
+        <button
+          className="surface restore-ui"
+          onClick={() => setHudHidden(false)}
+        >
+          恢复界面 · H
+        </button>
+      )}
+    </main>
   );
 }

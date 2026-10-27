@@ -143,12 +143,14 @@ export default function GlobeMap({
   const rotationRafRef = useRef<number | null>(null);
   const userInteractingRef = useRef(false);
   const [isMapReady, setIsMapReady] = useState(false);
+  const [mapError, setMapError] = useState(false);
   const [isSatellite, setIsSatellite] = useState(false);
   // Increment to force MapGL remount on style switch (cleanest way to reload layers).
   const [mapKey, setMapKey] = useState(0);
 
   const toggleStyle = () => {
     setIsMapReady(false);
+    setMapError(false);
     setIsSatellite((prev) => !prev);
     setMapKey((k) => k + 1);
   };
@@ -167,10 +169,10 @@ export default function GlobeMap({
       mapRef.current.flyTo({
         center: [flyTarget.lng, flyTarget.lat],
         zoom: LOCATION_FLY_ZOOM,
-        duration: 1900,
+        duration: window.matchMedia("(prefers-reduced-motion: reduce)").matches ? 0 : 1900,
         speed: 0.55,
         curve: 1.1,
-        essential: true,
+        essential: false,
       });
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -183,20 +185,21 @@ export default function GlobeMap({
       mapRef.current.flyTo({
         center: [regionTarget.lng, regionTarget.lat],
         zoom: regionTarget.zoom,
-        duration: 2000,
+        duration: window.matchMedia("(prefers-reduced-motion: reduce)").matches ? 0 : 2000,
         speed: 0.5,
         curve: 1.05,
-        essential: true,
+        essential: false,
       });
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [regionTarget]);
 
   const startRotate = useCallback(() => {
-    if (!autoRotate) return;
+    if (!autoRotate || window.matchMedia("(prefers-reduced-motion: reduce)").matches) return;
     stopRotate();
     const tick = () => {
       const map = mapRef.current?.getMap();
+      if (window.matchMedia("(prefers-reduced-motion: reduce)").matches) { stopRotate(); return; }
       if (!map || userInteractingRef.current) {
         rotationRafRef.current = requestAnimationFrame(tick);
         return;
@@ -219,6 +222,7 @@ export default function GlobeMap({
   }, [autoRotate, startRotate, stopRotate]);
 
   const handleLoad = () => {
+    setMapError(false);
     const map = mapRef.current?.getMap();
     if (!map) return;
     // Enable globe projection
@@ -426,6 +430,7 @@ export default function GlobeMap({
       maxZoom={4.6}
       mapStyle={isSatellite ? SATELLITE_STYLE : DARK_STYLE}
       onLoad={handleLoad}
+      onError={() => setMapError(true)}
       onMouseDown={() => (userInteractingRef.current = true)}
       onMouseUp={() => (userInteractingRef.current = false)}
       onTouchStart={() => (userInteractingRef.current = true)}
@@ -460,7 +465,7 @@ export default function GlobeMap({
                 e.stopPropagation();
                 onSelect(loc);
               }}
-              className="group relative block cursor-pointer focus:outline-none"
+              className="group relative block cursor-pointer focus-visible:outline-2 focus-visible:outline-sky-200"
               aria-label={loc.name}
               style={{
                 width: 36,
@@ -622,12 +627,20 @@ export default function GlobeMap({
       })}
     </MapGL>
 
+    {(!isMapReady || mapError) && (
+      <div className="globe-status surface" role="status">
+        {mapError ? <><span>部分底图暂时不可用，仍可浏览地点</span><button onClick={() => {
+          setMapError(false); setIsMapReady(false); setMapKey((key) => key + 1);
+        }}>重新加载</button></> : "正在加载地球…"}
+      </div>
+    )}
+
     {/* Style toggle — satellite ↔ dark vector */}
     <button
       onClick={toggleStyle}
       title={isSatellite ? "切换为深色地图" : "切换为卫星图像"}
       aria-label={isSatellite ? "切换为深色地图" : "切换为卫星图像"}
-      className="absolute bottom-[78px] right-4 z-20 flex h-9 w-9 items-center justify-center rounded-full border border-white/20 bg-black/55 text-white/75 shadow-md backdrop-blur-md transition-all hover:border-white/40 hover:bg-black/70 hover:text-white sm:bottom-[78px] sm:right-5"
+      className="absolute bottom-[78px] right-4 z-20 flex h-11 w-11 items-center justify-center rounded-full border border-white/20 bg-black/55 text-white/75 shadow-md backdrop-blur-md transition-all hover:border-white/40 hover:bg-black/70 hover:text-white sm:bottom-[78px] sm:right-5"
     >
       {isSatellite ? (
         // Vector map icon
