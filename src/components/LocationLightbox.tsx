@@ -1,588 +1,341 @@
 "use client";
+/* eslint-disable @next/next/no-img-element -- Remote video covers need runtime fallbacks. */
 
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useState, type KeyboardEvent } from "react";
 import type { Location } from "@/lib/types";
 import { useBucketStatus } from "@/lib/bucketList";
-import { framesForLocation, type Frame } from "@/lib/videoFrames";
-import { formatSavedAgo, useNote, type Note } from "@/lib/notes";
+import { getNote, setNote, type Note } from "@/lib/notes";
 import { REGION_LABEL, regionOf } from "@/lib/regions";
 
-type FrameStatus = "loading" | "valid" | "invalid";
-
-/**
- * Pre-load each candidate frame URL and track its status.
- *   - Covers (hqdefault.jpg) are optimistically marked valid — they exist for any real video
- *   - hq1/2/3.jpg are probed: > 200px wide → valid, otherwise invalid
- * Returns a status map so the UI can show loading skeletons for in-flight frames.
- */
-function useFrameStatuses(
-  allFrames: Frame[]
-): Record<string, FrameStatus> {
-  const [statuses, setStatuses] = useState<Record<string, FrameStatus>>(() => ({}));
-
-  const initialStatuses = useMemo(() => {
-    const next: Record<string, FrameStatus> = {};
-    for (const f of allFrames) {
-      next[f.key] = f.key.endsWith("-cover") ? "valid" : "loading";
-    }
-    return next;
-  }, [allFrames]);
-
-  useEffect(() => {
-    let cancelled = false;
-    for (const f of allFrames) {
-      if (f.key.endsWith("-cover")) continue;
-      const img = new Image();
-      img.onload = () => {
-        if (cancelled) return;
-        setStatuses((prev) => ({
-          ...prev,
-          [f.key]: img.naturalWidth > 200 ? "valid" : "invalid",
-        }));
-      };
-      img.onerror = () => {
-        if (cancelled) return;
-        setStatuses((prev) => ({ ...prev, [f.key]: "invalid" }));
-      };
-      img.src = f.url;
-    }
-
-    return () => {
-      cancelled = true;
-    };
-  }, [allFrames]);
-
-  return useMemo(() => {
-    const merged: Record<string, FrameStatus> = { ...initialStatuses };
-    for (const f of allFrames) {
-      const resolved = statuses[f.key];
-      if (resolved) merged[f.key] = resolved;
-    }
-    return merged;
-  }, [allFrames, initialStatuses, statuses]);
-}
-
-type Props = {
-  location: Location | null;
-  onClose: () => void;
-};
-
-export default function LocationLightbox({ location, onClose }: Props) {
-  if (!location) return null;
-
-  return (
-    <LocationLightboxPanel key={location.id} location={location} onClose={onClose} />
-  );
-}
-
-function LocationLightboxPanel({
+export default function LocationLightbox({
   location,
   onClose,
+  onBack,
 }: {
   location: Location;
   onClose: () => void;
+  onBack?: () => void;
 }) {
-  const [frameIdx, setFrameIdx] = useState(0);
-  const [status, setStatus] = useBucketStatus(location.id);
-  const [note] = useNote(location.id);
-
-  const allFrames = useMemo(() => framesForLocation(location), [location]);
-  const frameStatuses = useFrameStatuses(allFrames);
-  // Deduplicate by videoId — keeps only the first valid candidate per video
-  // (maxresdefault wins over hqdefault when both are valid, since it comes first).
-  const frames = useMemo(() => {
-    const seen = new Set<string>();
-    return allFrames.filter((f) => {
-      if (frameStatuses[f.key] !== "valid") return false;
-      if (seen.has(f.videoId)) return false;
-      seen.add(f.videoId);
-      return true;
-    });
-  }, [allFrames, frameStatuses]);
-  const pendingCount = useMemo(
-    () =>
-      allFrames.filter((f) => frameStatuses[f.key] === "loading").length,
-    [allFrames, frameStatuses]
-  );
-  const [loadedFrameKey, setLoadedFrameKey] = useState<string | null>(null);
-
-  useEffect(() => {
-    const onKey = (e: KeyboardEvent) => {
-      if (e.key === "Escape") onClose();
-      if (e.key === "ArrowRight") setFrameIdx((i) => (i + 1) % frames.length);
-      if (e.key === "ArrowLeft")
-        setFrameIdx((i) => (i - 1 + frames.length) % frames.length);
-    };
-    window.addEventListener("keydown", onKey);
-    return () => {
-      window.removeEventListener("keydown", onKey);
-    };
-  }, [onClose, frames.length]);
-
-  if (frames.length === 0) return null;
-
-  const safeFrameIdx = frameIdx >= frames.length ? 0 : frameIdx;
-  const frame = frames[safeFrameIdx];
-  const imgLoaded = loadedFrameKey === frame.key;
-  const youtubeUrl = `https://www.youtube.com/watch?v=${frame.videoId}`;
-  const channelUrl = "https://www.youtube.com/@linksphotograph";
-  const regionLabel = REGION_LABEL[regionOf(location)];
-  const confidenceLabel =
-    location.confidence === "high"
-      ? "高可信"
-      : location.confidence === "medium"
-      ? "中可信"
-      : "低可信";
-  const statusLabel =
-    status === "visited" ? "已打卡" : status === "wishlist" ? "想去" : "未标记";
-  const noteLabel = note?.visitedAt
-    ? `到访 ${note.visitedAt}`
-    : note
-    ? `笔记更新 ${formatSavedAgo(note.updatedAt)}`
-    : null;
-
-  const prev = () =>
-    setFrameIdx((i) => (i - 1 + frames.length) % frames.length);
-  const next = () => setFrameIdx((i) => (i + 1) % frames.length);
-
   return (
-    <>
-      {/* Right-side panel — slides in from the right edge */}
-      <div
-        className="fixed inset-y-0 right-0 z-50 flex items-center p-3 sm:p-5 pointer-events-none"
-        role="dialog"
-        aria-modal="true"
-      >
-        {/* Card */}
-        <div
-          className="pointer-events-auto relative flex w-full max-w-[460px] flex-col overflow-hidden rounded-[28px] border border-white/10 bg-black/78 text-white shadow-[0_20px_60px_rgba(0,0,0,0.7)] backdrop-blur-xl animate-[slideInRight_0.38s_cubic-bezier(0.22,1,0.36,1)]"
-          style={{ maxHeight: "calc(100vh - 2.5rem)" }}
-          onClick={(e) => e.stopPropagation()}
-        >
-        {/* Close */}
+    <Detail
+      key={location.id}
+      location={location}
+      onClose={onClose}
+      onBack={onBack}
+    />
+  );
+}
+function Cover({ videoId, title }: { videoId: string; title: string }) {
+  const [attempt, setAttempt] = useState(0);
+  const [loaded, setLoaded] = useState(false);
+  return (
+    <div className="detail-cover">
+      <p role="status">
+        {attempt >= 2 ? "暂时无法加载封面" : !loaded ? "封面加载中…" : ""}
+      </p>
+      {attempt < 2 && (
+        <img
+          src={`https://i.ytimg.com/vi/${videoId}/${attempt ? "hqdefault" : "maxresdefault"}.jpg`}
+          alt={title}
+          onLoad={(e) => {
+            if (e.currentTarget.naturalWidth <= 200 && !attempt) {
+              setAttempt(1);
+              return;
+            }
+            setLoaded(true);
+          }}
+          onError={() => {
+            setLoaded(false);
+            setAttempt((n) => n + 1);
+          }}
+          style={{ opacity: loaded ? 1 : 0 }}
+        />
+      )}
+    </div>
+  );
+}
+function Detail({
+  location,
+  onClose,
+  onBack,
+}: {
+  location: Location;
+  onClose: () => void;
+  onBack?: () => void;
+}) {
+  const videos = location.videos.filter(
+    (v, i, all) => all.findIndex((other) => other.id === v.id) === i,
+  );
+  const [index, setIndex] = useState(0);
+  const [status, updateStatus] = useBucketStatus(location.id);
+  const [statusError, setStatusError] = useState("");
+  const video = videos[index];
+  const move = (delta: number) => {
+    if (videos.length > 1)
+      setIndex((i) => (i + delta + videos.length) % videos.length);
+  };
+  const onKey = (e: KeyboardEvent) => {
+    if (
+      (e.target as HTMLElement).closest(
+        'input, textarea, select, [contenteditable="true"]',
+      )
+    )
+      return;
+    if (e.key === "ArrowLeft" || e.key === "ArrowRight") {
+      e.preventDefault();
+      move(e.key === "ArrowLeft" ? -1 : 1);
+    }
+  };
+  return (
+    <div className="detail-layout" onKeyDown={onKey}>
+      <header className="panel-header">
         <button
-          onClick={onClose}
-          aria-label="关闭"
-          className="absolute right-3 top-3 z-20 rounded-full bg-black/50 p-1.5 text-white/80 backdrop-blur-md transition-colors hover:bg-black/70 hover:text-white"
+          className="text-button"
+          data-initial-focus
+          onClick={onBack ?? onClose}
         >
-          <svg viewBox="0 0 20 20" fill="currentColor" className="h-4 w-4">
-            <path d="M4.3 4.3a1 1 0 011.4 0L10 8.6l4.3-4.3a1 1 0 111.4 1.4L11.4 10l4.3 4.3a1 1 0 01-1.4 1.4L10 11.4l-4.3 4.3a1 1 0 01-1.4-1.4L8.6 10 4.3 5.7a1 1 0 010-1.4z" />
-          </svg>
+          {onBack ? "← 返回地点列表" : "地点详情"}
         </button>
-
-        {/* Gallery area — shrink-0 so the body below can flex-scroll */}
-        <div className="relative aspect-video w-full shrink-0 overflow-hidden bg-black">
-          {/* Blurred placeholder — hqdefault is already cached from the marker
-              thumbnail, so it appears instantly and eliminates the black flash. */}
-          {/* eslint-disable-next-line @next/next/no-img-element */}
-          <img
-            src={`https://i.ytimg.com/vi/${frame.videoId}/hqdefault.jpg`}
-            aria-hidden
-            alt=""
-            className={`absolute inset-0 h-full w-full scale-110 object-cover blur-lg transition-opacity duration-500 ${
-              imgLoaded ? "opacity-0" : "opacity-100"
-            }`}
-          />
-          {/* Main image — fades in sharp once loaded */}
-          {/* eslint-disable-next-line @next/next/no-img-element */}
-          <img
-            key={frame.key}
-            src={frame.url}
-            alt={frame.videoTitle}
-            onLoad={() => setLoadedFrameKey(frame.key)}
-            className={`relative h-full w-full object-cover transition-opacity duration-500 ${
-              imgLoaded ? "opacity-100" : "opacity-0"
-            }`}
-          />
-
-          {/* Frame label */}
-          <span className="absolute left-3 top-3 rounded-full bg-black/60 px-2.5 py-1 text-[10px] font-medium uppercase tracking-widest text-white/80 backdrop-blur-sm">
-            {frame.label}
-          </span>
-
-          {/* Counter */}
-          <span className="absolute bottom-3 right-3 rounded-full bg-black/70 px-2.5 py-1 text-[10px] font-medium text-white/80 backdrop-blur-sm">
-            {safeFrameIdx + 1} / {frames.length}
-          </span>
-
-          {/* Prev / Next arrows */}
-          {frames.length > 1 && (
-            <>
-              <button
-                onClick={prev}
-                aria-label="上一张"
-                className="group absolute left-0 top-0 flex h-full w-12 items-center justify-start pl-2 text-white/60 transition-colors hover:bg-gradient-to-r hover:from-black/50 hover:to-transparent hover:text-white"
-              >
-                <svg
-                  viewBox="0 0 20 20"
-                  fill="currentColor"
-                  className="h-6 w-6 rounded-full bg-black/40 p-1 backdrop-blur-sm transition-transform group-hover:-translate-x-0.5"
-                >
-                  <path
-                    fillRule="evenodd"
-                    d="M12.7 5.3a1 1 0 010 1.4L9.4 10l3.3 3.3a1 1 0 01-1.4 1.4l-4-4a1 1 0 010-1.4l4-4a1 1 0 011.4 0z"
-                    clipRule="evenodd"
-                  />
-                </svg>
-              </button>
-              <button
-                onClick={next}
-                aria-label="下一张"
-                className="group absolute right-0 top-0 flex h-full w-12 items-center justify-end pr-2 text-white/60 transition-colors hover:bg-gradient-to-l hover:from-black/50 hover:to-transparent hover:text-white"
-              >
-                <svg
-                  viewBox="0 0 20 20"
-                  fill="currentColor"
-                  className="h-6 w-6 rounded-full bg-black/40 p-1 backdrop-blur-sm transition-transform group-hover:translate-x-0.5"
-                >
-                  <path
-                    fillRule="evenodd"
-                    d="M7.3 14.7a1 1 0 010-1.4L10.6 10 7.3 6.7a1 1 0 011.4-1.4l4 4a1 1 0 010 1.4l-4 4a1 1 0 01-1.4 0z"
-                    clipRule="evenodd"
-                  />
-                </svg>
-              </button>
-            </>
-          )}
-
-          {/* Dots indicator */}
-          {frames.length > 1 && frames.length <= 12 && (
-            <div className="absolute bottom-3 left-1/2 flex -translate-x-1/2 gap-1">
-              {frames.map((f, i) => (
-                <button
-                  key={f.key}
-                  onClick={() => setFrameIdx(i)}
-                  aria-label={`跳到第 ${i + 1} 张`}
-                  className={`h-1.5 rounded-full transition-all ${
-                    i === safeFrameIdx
-                      ? "w-5 bg-white"
-                      : "w-1.5 bg-white/40 hover:bg-white/70"
-                  }`}
-                />
-              ))}
+        <button className="icon-button" aria-label="关闭详情" onClick={onClose}>
+          ×
+        </button>
+      </header>
+      <div className="detail-scroll">
+        {video ? (
+          <>
+            <div className="gallery">
+              <Cover key={video.id} videoId={video.id} title={video.title} />
+              <span className="cover-counter">
+                {index + 1} / {videos.length}
+              </span>
+              {videos.length > 1 && (
+                <div className="gallery-arrows">
+                  <button aria-label="上一个视频" onClick={() => move(-1)}>
+                    ‹
+                  </button>
+                  <button aria-label="下一个视频" onClick={() => move(1)}>
+                    ›
+                  </button>
+                </div>
+              )}
             </div>
-          )}
-        </div>
-
-        {/* Body — scrollable when content overflows in the side panel */}
-        <div className="scroll-hidden flex-1 overflow-y-auto px-5 pt-4 pb-5">
-          <div className="flex items-start justify-between gap-4">
-            <div>
-              <h2 className="font-serif text-[30px] leading-none tracking-[0.04em]">
-                {location.name}
-              </h2>
-              <p className="mt-2 text-xs uppercase tracking-[0.22em] text-white/44">
-                {location.country} · {regionLabel}
+            {videos.length > 1 && (
+              <div className="video-thumbs">
+                {videos.map((v, i) => (
+                  <button
+                    key={v.id}
+                    aria-label={`查看视频 ${i + 1}：${v.title}`}
+                    aria-pressed={index === i}
+                    onClick={() => setIndex(i)}
+                  >
+                    <img src={v.thumbnail} alt="" loading="lazy" />
+                    <span>{i + 1}</span>
+                  </button>
+                ))}
+              </div>
+            )}
+          </>
+        ) : (
+          <div className="detail-cover">
+            <p>暂无关联视频</p>
+          </div>
+        )}
+        <div className="detail-body">
+          <p className="eyebrow">
+            {location.country} · {REGION_LABEL[regionOf(location)]}
+          </p>
+          <h2 className="place-title">{location.name}</h2>
+          <section className="video-section">
+            <p className="eyebrow">旅行影像</p>
+            {video ? (
+              <>
+                <p className="video-title">{video.title}</p>
+                <div className="video-links">
+                  <a
+                    className="primary-button"
+                    href={`https://www.youtube.com/watch?v=${video.id}`}
+                    target="_blank"
+                    rel="noreferrer"
+                    aria-label="在 YouTube 观看（新标签页）"
+                  >
+                    ▶ 在 YouTube 观看 ↗
+                  </a>
+                  <a
+                    className="text-button"
+                    href="https://www.youtube.com/@linksphotograph"
+                    target="_blank"
+                    rel="noreferrer"
+                    aria-label="频道（新标签页）"
+                  >
+                    频道 ↗
+                  </a>
+                </div>
+              </>
+            ) : (
+              <p className="muted">暂无关联视频</p>
+            )}
+            <details className="source-details">
+              <summary>地点来源</summary>
+              <p>
+                关联频道 @linksphotograph 的旅行视频 · 位置提取可信度：
+                {location.confidence === "high"
+                  ? "高"
+                  : location.confidence === "medium"
+                    ? "中"
+                    : "低"}
+                。
               </p>
-            </div>
-            <div className="rounded-full border border-white/10 bg-white/[0.04] px-2.5 py-1 text-[10px] uppercase tracking-[0.18em] text-white/58">
-              {statusLabel}
-            </div>
-          </div>
-
-          <div className="mt-4 flex flex-wrap gap-2 text-[10px] sm:text-[11px]">
-            <MetaPill label="视频" value={`${location.videos.length} 条`} />
-            <MetaPill label="可信度" value={confidenceLabel} />
-            <MetaPill label="画面" value={frame.label} />
-            {noteLabel && <MetaPill label="状态" value={noteLabel} tone="accent" />}
-          </div>
-
-          <div className="mt-4 rounded-2xl border border-white/10 bg-white/[0.03] px-4 py-3">
-            <div className="text-[10px] uppercase tracking-[0.22em] text-white/38">
-              当前画面
-            </div>
-            <p className="mt-2 text-sm leading-relaxed text-white/82">
-              {frame.videoTitle}
-            </p>
-          </div>
-
-          <div className="mt-4 grid grid-cols-[minmax(0,1fr)_auto] gap-2">
-            <a
-              href={youtubeUrl}
-              target="_blank"
-              rel="noreferrer"
-              className="inline-flex items-center justify-center gap-2 rounded-full bg-white px-4 py-2.5 text-sm font-medium text-black transition-colors hover:bg-white/90"
-            >
-              <svg
-                viewBox="0 0 24 24"
-                fill="currentColor"
-                className="h-4 w-4 shrink-0 text-red-500"
-              >
-                <path d="M23.5 6.2a3 3 0 0 0-2.1-2.1C19.5 3.6 12 3.6 12 3.6s-7.5 0-9.4.5A3 3 0 0 0 .5 6.2C0 8.1 0 12 0 12s0 3.9.5 5.8a3 3 0 0 0 2.1 2.1c1.9.5 9.4.5 9.4.5s7.5 0 9.4-.5a3 3 0 0 0 2.1-2.1c.5-1.9.5-5.8.5-5.8s0-3.9-.5-5.8zM9.6 15.6V8.4L15.8 12l-6.2 3.6z" />
-              </svg>
-              在 YouTube 打开
-            </a>
-            <a
-              href={channelUrl}
-              target="_blank"
-              rel="noreferrer"
-              className="inline-flex items-center justify-center rounded-full border border-white/10 bg-white/[0.03] px-3.5 py-2.5 text-xs text-white/76 transition-colors hover:border-white/18 hover:bg-white/[0.06] hover:text-white"
-            >
-              频道
-            </a>
-          </div>
-
-          {/* Status buttons */}
-          <div className="mt-4 flex items-center gap-2">
-            <StatusButton
-              label="✓ 已打卡"
-              active={status === "visited"}
-              activeClass="bg-emerald-500 text-white shadow-[0_0_20px_-5px_rgba(16,185,129,0.8)]"
-              onClick={() =>
-                setStatus(status === "visited" ? null : "visited")
-              }
-            />
-            <StatusButton
-              label="♡ 想去"
-              active={status === "wishlist"}
-              activeClass="bg-amber-500 text-white shadow-[0_0_20px_-5px_rgba(245,158,11,0.8)]"
-              onClick={() =>
-                setStatus(status === "wishlist" ? null : "wishlist")
-              }
-            />
-            <span className="ml-auto text-[10px] uppercase tracking-widest text-white/40">
-              {frames.length} 张画面
-            </span>
-          </div>
-
-          {/* Personal notes */}
-          <NoteEditor locationId={location.id} visited={status === "visited"} />
-
-          {/* Thumbnail strip */}
-          {(frames.length > 1 || pendingCount > 0) && (
-            <div className="mt-4 -mx-1 flex gap-1.5 overflow-x-auto px-1 pb-1">
-              {frames.map((f, i) => (
+            </details>
+          </section>
+          <section className="personal-section">
+            <h3>我的清单</h3>
+            <div className="bucket-buttons">
+              {(["wishlist", "visited"] as const).map((value) => (
                 <button
-                  key={f.key}
-                  onClick={() => setFrameIdx(i)}
-                  className={`relative shrink-0 overflow-hidden rounded-md transition-all ${
-                    i === safeFrameIdx
-                      ? "ring-2 ring-white"
-                      : "opacity-50 ring-1 ring-white/10 hover:opacity-100"
-                  }`}
-                  style={{ width: 80, height: 45 }}
-                  aria-label={`${f.label}: ${f.videoTitle}`}
+                  key={value}
+                  className={value}
+                  aria-pressed={status === value}
+                  onClick={() => {
+                    try {
+                      updateStatus(status === value ? null : value);
+                      setStatusError("");
+                    } catch {
+                      setStatusError("未能保存标记，请重试");
+                    }
+                  }}
                 >
-                  {/* eslint-disable-next-line @next/next/no-img-element */}
-                  <img
-                    src={f.url}
-                    alt={f.label}
-                    className="h-full w-full object-cover"
-                    loading="lazy"
-                  />
+                  {value === "visited" ? "✓ 已去" : "♡ 想去"}
                 </button>
               ))}
-              {/* Skeleton placeholders for frames still probing */}
-              {Array.from({ length: pendingCount }).map((_, i) => (
-                <span
-                  key={`skeleton-${i}`}
-                  aria-hidden
-                  className="shrink-0 animate-[shimmer_1.8s_ease-in-out_infinite] rounded-md ring-1 ring-white/10"
-                  style={{
-                    width: 80,
-                    height: 45,
-                    background:
-                      "linear-gradient(90deg, rgba(255,255,255,0.03) 0%, rgba(255,255,255,0.09) 50%, rgba(255,255,255,0.03) 100%)",
-                    backgroundSize: "200% 100%",
-                  }}
-                />
-              ))}
             </div>
-          )}
-        </div>
+            {statusError && (
+              <p role="alert" className="save-error">
+                {statusError}
+              </p>
+            )}
+          </section>
+          <NoteEditor locationId={location.id} />
         </div>
       </div>
-    </>
-  );
-}
-
-function StatusButton({
-  label,
-  active,
-  activeClass,
-  onClick,
-}: {
-  label: string;
-  active: boolean;
-  activeClass: string;
-  onClick: () => void;
-}) {
-  return (
-    <button
-      onClick={onClick}
-      className={`rounded-full px-3.5 py-1.5 text-xs font-medium transition-all ${
-        active
-          ? activeClass
-          : "bg-white/10 text-white/80 hover:bg-white/15 hover:text-white"
-      }`}
-    >
-      {label}
-    </button>
-  );
-}
-
-function MetaPill({
-  label,
-  value,
-  tone,
-}: {
-  label: string;
-  value: string;
-  tone?: "accent";
-}) {
-  return (
-    <div
-      className={`rounded-full border px-2.5 py-1 ${
-        tone === "accent"
-          ? "border-sky-300/20 bg-sky-300/10 text-sky-100/90"
-          : "border-white/10 bg-white/[0.04] text-white/72"
-      }`}
-    >
-      <span className="mr-1.5 uppercase tracking-[0.18em] text-white/40">
-        {label}
-      </span>
-      <span className="tabular-nums">{value}</span>
     </div>
   );
 }
 
-function NoteEditor({
-  locationId,
-  visited,
-}: {
-  locationId: string;
-  visited: boolean;
-}) {
-  const [note, setNoteState] = useNote(locationId);
-  const [expanded, setExpanded] = useState(false);
-  const [text, setText] = useState("");
-  const [visitedAt, setVisitedAt] = useState<string>("");
-  const [savedFlash, setSavedFlash] = useState<number | null>(null);
-  const textareaRef = useRef<HTMLTextAreaElement>(null);
-
-  // Hydrate local state from persisted note when the location changes
-  useEffect(() => {
-    setText(note?.text ?? "");
-    setVisitedAt(note?.visitedAt ?? "");
-    // Auto-expand if a note already exists or user has marked visited
-    setExpanded(Boolean(note) || visited);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [locationId]);
-
-  const commit = (nextText: string, nextDate: string) => {
-    const trimmed = nextText.trim();
-    if (!trimmed && !nextDate) {
-      setNoteState(null);
-    } else {
-      const updated: Note = {
-        text: trimmed,
-        visitedAt: nextDate || null,
+// Keep unsaved text recoverable when storage is full and the user switches places.
+const unsavedDrafts = new Map<string, { text: string; visitedAt: string }>();
+function NoteEditor({ locationId }: { locationId: string }) {
+  const [initial] = useState(() => getNote(locationId));
+  const [draft, setDraft] = useState(
+    () =>
+      unsavedDrafts.get(locationId) ?? {
+        text: initial?.text ?? "",
+        visitedAt: initial?.visitedAt ?? "",
+      },
+  );
+  const [expanded, setExpanded] = useState(() =>
+    Boolean(initial || unsavedDrafts.has(locationId)),
+  );
+  const [message, setMessage] = useState(() =>
+    unsavedDrafts.has(locationId)
+      ? "未能保存，请保留文字后重试"
+      : initial
+        ? "已保存到此浏览器"
+        : "",
+  );
+  const [failed, setFailed] = useState(() => unsavedDrafts.has(locationId));
+  const [confirmClear, setConfirmClear] = useState(false);
+  const save = (next: typeof draft) => {
+    setDraft(next);
+    unsavedDrafts.set(locationId, next);
+    try {
+      const note: Note = {
+        text: next.text,
+        visitedAt: next.visitedAt || null,
         updatedAt: Date.now(),
       };
-      setNoteState(updated);
+      setNote(locationId, note);
+      unsavedDrafts.delete(locationId);
+      setFailed(false);
+      setMessage("已保存到此浏览器");
+      return true;
+    } catch {
+      setFailed(true);
+      setMessage("未能保存，请保留文字后重试");
+      return false;
     }
-    setSavedFlash(Date.now());
   };
-
-  const hasContent = text.trim().length > 0 || Boolean(visitedAt);
-  const savedLabel = note ? formatSavedAgo(note.updatedAt) : null;
-
   return (
-    <div className="mt-4 rounded-xl border border-white/10 bg-white/[0.02]">
+    <section className="note-section">
       <button
-        onClick={() => {
-          const next = !expanded;
-          setExpanded(next);
-          if (next) setTimeout(() => textareaRef.current?.focus(), 50);
-        }}
-        className="flex w-full items-center justify-between px-3 py-2 text-left text-xs text-white/60 transition-colors hover:text-white/90"
+        className="note-toggle"
+        aria-expanded={expanded}
+        onClick={() => setExpanded((v) => !v)}
       >
-        <span className="flex items-center gap-2">
-          <svg
-            viewBox="0 0 20 20"
-            fill="currentColor"
-            className="h-3.5 w-3.5 text-white/50"
-          >
-            <path d="M4 3a2 2 0 00-2 2v10a2 2 0 002 2h12a2 2 0 002-2V7.414A2 2 0 0017.414 6L14 2.586A2 2 0 0012.586 2H4zm0 2h8v4a1 1 0 001 1h4v6H4V5z" />
-          </svg>
-          我的笔记
-          {note && (
-            <span className="rounded-full bg-white/10 px-1.5 py-0.5 text-[9px] uppercase tracking-wider text-white/70">
-              已写
-            </span>
-          )}
-        </span>
-        <span className="flex items-center gap-2 text-[10px] text-white/40">
-          {savedLabel && !expanded && <span>上次 · {savedLabel}</span>}
-          <svg
-            viewBox="0 0 20 20"
-            fill="currentColor"
-            className={`h-3 w-3 transition-transform ${
-              expanded ? "rotate-180" : ""
-            }`}
-          >
-            <path
-              fillRule="evenodd"
-              d="M5.3 7.3a1 1 0 011.4 0L10 10.6l3.3-3.3a1 1 0 111.4 1.4l-4 4a1 1 0 01-1.4 0l-4-4a1 1 0 010-1.4z"
-              clipRule="evenodd"
-            />
-          </svg>
-        </span>
+        <h3>我的手记</h3>
+        <span>{expanded ? "收起 −" : "写一笔 +"}</span>
       </button>
-
       {expanded && (
-        <div className="space-y-2 border-t border-white/5 px-3 py-3">
+        <div className="note-fields">
+          <label htmlFor={`note-${locationId}`}>旅行手记</label>
           <textarea
-            ref={textareaRef}
-            value={text}
-            onChange={(e) => setText(e.target.value)}
-            onBlur={() => commit(text, visitedAt)}
-            placeholder={
-              visited
-                ? "写下这次旅行的感想…天气、心情、推荐的小店"
-                : "为什么想去？想做什么？"
-            }
-            rows={3}
-            className="w-full resize-none rounded-lg border border-white/10 bg-black/40 px-3 py-2 text-sm leading-relaxed text-white/90 placeholder:text-white/30 focus:border-white/30 focus:outline-none"
+            id={`note-${locationId}`}
+            value={draft.text}
+            rows={4}
+            placeholder="记录想去的理由或旅行感想"
+            onChange={(e) => save({ ...draft, text: e.target.value })}
+            onBlur={() => {
+              if (failed) save(draft);
+            }}
           />
-
-          <div className="flex items-center gap-2">
-            <label className="flex items-center gap-1.5 text-[10px] uppercase tracking-widest text-white/40">
-              到访日期
-            </label>
-            <input
-              type="date"
-              value={visitedAt}
-              onChange={(e) => {
-                setVisitedAt(e.target.value);
-                commit(text, e.target.value);
-              }}
-              className="rounded-md border border-white/10 bg-black/40 px-2 py-1 text-xs text-white/80 focus:border-white/30 focus:outline-none"
-            />
-            {hasContent && (
-              <button
-                onClick={() => {
-                  setText("");
-                  setVisitedAt("");
-                  setNoteState(null);
-                  setSavedFlash(Date.now());
-                }}
-                className="ml-auto text-[10px] uppercase tracking-widest text-white/40 transition-colors hover:text-red-400"
-              >
-                清空
+          <label htmlFor={`date-${locationId}`}>
+            到访日期 <span className="muted">（可选）</span>
+          </label>
+          <input
+            id={`date-${locationId}`}
+            type="date"
+            value={draft.visitedAt}
+            onChange={(e) => save({ ...draft, visitedAt: e.target.value })}
+          />
+          <div className="note-actions">
+            {draft.text || draft.visitedAt ? (
+              confirmClear ? (
+                <>
+                  <button
+                    className="danger-button"
+                    onClick={() => {
+                      if (save({ text: "", visitedAt: "" }))
+                        setConfirmClear(false);
+                    }}
+                  >
+                    确认清空
+                  </button>
+                  <button
+                    className="text-button"
+                    onClick={() => setConfirmClear(false)}
+                  >
+                    取消
+                  </button>
+                </>
+              ) : (
+                <button
+                  className="text-button"
+                  onClick={() => setConfirmClear(true)}
+                >
+                  清空手记
+                </button>
+              )
+            ) : null}
+            {failed && (
+              <button className="secondary-button" onClick={() => save(draft)}>
+                重试保存
               </button>
             )}
           </div>
-
-          {savedLabel && (
-            <p className="text-right text-[10px] text-white/40">
-              {savedFlash && Date.now() - savedFlash < 2500
-                ? "✓ 已保存"
-                : `已保存 · ${savedLabel}`}
-            </p>
-          )}
         </div>
       )}
-    </div>
+      <p role="status" className={failed ? "save-error" : "saved-message"}>
+        {message}
+      </p>
+    </section>
   );
 }
